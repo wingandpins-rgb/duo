@@ -238,7 +238,7 @@ addRunFlags(program.command('ask').argument('[question...]').description('same q
 
 addRunFlags(program.command('pair').argument('[task...]').description('one seat writes the code, the other reviews it, in cycles until both agree it is done (seat A writes, B reviews)'), { chair: false })
   .option('--cycles <n>', 'write/review cycles at most', '4')
-  .option('--check <command>', 'a command duo runs after each writer turn (tests); it must pass to finish')
+  .option('--check <command>', 'a command duo runs after each writer turn (tests); it must pass to finish (on Windows it runs in cmd.exe)')
   .option('--in-place', 'let the writer edit the folder itself (default: a git worktree on a new branch)')
   .option('--network', 'Codex writer: allow network access inside the sandbox (package installs)')
   .option('--full-access', 'writer runs without a sandbox (Codex danger-full-access, Claude bypassPermissions)')

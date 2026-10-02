@@ -89,5 +89,6 @@ export interface DesktopBridge {
 export const desktop = (window as any).duoDesktop as DesktopBridge | undefined;
 
 export const isMac = (desktop?.platform ?? navigator.platform).toLowerCase().startsWith('mac') || desktop?.platform === 'darwin';
+export const isWindows = (desktop?.platform ?? navigator.platform).toLowerCase().startsWith('win');
 /** "⌘" on macOS, "Ctrl" elsewhere. */
 export const MOD = isMac ? '⌘' : 'Ctrl';

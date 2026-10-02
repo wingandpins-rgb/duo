@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, desktop, exportUrl, MOD } from './api.ts';
+import { api, desktop, exportUrl, isWindows, MOD } from './api.ts';
 import { BlockView, Markdown } from './Chat.tsx';
 import { MODES, ModeDemo, type ModeId } from './demos.tsx';
 import { DiffView } from './Diff.tsx';
@@ -708,7 +708,7 @@ export function NewRun({ draft }: { draft?: Partial<StartRun> }) {
               </label>
               <label class="field">Check command <span class="muted small">(optional)</span>
                 <input class="mono" placeholder="npm test" value={check} onInput={(e) => setCheck((e.target as HTMLInputElement).value)} />
-                <span class="muted small">duo runs it after every writer turn; the run only finishes when it passes. It runs with your permissions.</span>
+                <span class="muted small">duo runs it after every writer turn; the run only finishes when it passes. It runs with your permissions{isWindows ? ', in cmd.exe (not bash or PowerShell)' : ''}.</span>
               </label>
               <label class="field">Cycles at most
                 <input type="number" min={1} max={12} value={rounds} onInput={(e) => setRounds(Number((e.target as HTMLInputElement).value) || 1)} />
