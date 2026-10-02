@@ -33,6 +33,7 @@
 - Windows: the `/duo` skill could not run `duo` (`command not found`): Claude Code runs commands in Git Bash, and setup wrote only `duo.cmd` and `duo-safe.cmd`. Setup now also writes the scripts Git Bash runs, as npm does for its own commands, and refuses to replace a `duo` command another package installed.
 - Windows: the `/duo` skill wrote briefs to `/tmp`, which is a different place for each program there: Claude Code's Write tool refused it, Git Bash reads it as your Temp folder, and Node as `C:\tmp`. The skill now passes briefs to duo on stdin in a quoted heredoc, on every OS, and no longer needs permission to write files.
 - Windows: a pair run on a repository with deep paths failed with "Filename too long": its worktree in duo's data folder adds about 100 characters to every path, past the 260 git allows there by default. duo's git calls in worktrees allow long paths now.
+- With `core.autocrlf=true` (the Git for Windows default), a pair worktree was checked out with Windows line endings but read back without them, so every line of a file the writer touched showed as changed; and discarding an in-place run converted every restored file to Windows line endings. Files now go into and out of duo's worktrees and snapshots byte for byte.
 
 ## 0.2.0
 

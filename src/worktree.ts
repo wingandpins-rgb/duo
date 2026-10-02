@@ -41,7 +41,13 @@ export interface WorkspaceDiff {
   truncated: boolean;
 }
 
-const ID = ['-c', 'user.name=duo', '-c', 'user.email=duo@localhost', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false'];
+/**
+ * Files go into and out of duo's worktrees and snapshots byte for byte, whatever the user's
+ * core.autocrlf (true by default in Git for Windows): checked out with one setting and added with
+ * another, every line of a file the writer touched would differ.
+ */
+const EXACT = ['-c', 'core.autocrlf=false'];
+const ID = ['-c', 'user.name=duo', '-c', 'user.email=duo@localhost', '-c', 'commit.gpgsign=false', ...EXACT];
 
 /**
  * Agents control the files where these git calls run (the writer its whole workspace), so they run no
@@ -97,7 +103,7 @@ export function prepareWorkspace(cwd: string, runId: string, title: string, mode
     const base = git(['-C', repo, 'rev-parse', 'HEAD']).trim();
     const branch = `duo/${slug(title)}-${Date.now().toString(36).slice(-5)}`;
     const path = join(WORKTREES_DIR, runId);
-    git(['-C', repo, 'worktree', 'add', '-b', branch, path, base]);
+    git(['-C', repo, ...EXACT, 'worktree', 'add', '-b', branch, path, base]);
     return { mode, cwd: sub ? join(path, sub) : path, path, repo, branch, base, state: 'active' };
   }
   // In place: snapshot the folder into a shadow repository that lives in duo's data folder.
@@ -275,7 +281,7 @@ export function revertInPlace(ws: Workspace): { ok: boolean; message: string } {
   // -z: names exactly as stored (no quoting of unusual characters); --no-renames: a file the writer
   // renamed counts as added under its new name, so it is removed too.
   const added = git([...g, 'diff', '--cached', '--name-only', '-z', '--no-renames', '--diff-filter=A', ws.base]).split('\0').filter(Boolean);
-  git([...g, 'checkout', ws.base, '--', '.']);
+  git([...g, ...EXACT, 'checkout', ws.base, '--', '.']);
   for (const f of added) rmSync(join(ws.path, f), { force: true });
   return { ok: true, message: `restored ${ws.path} to the snapshot taken before the writer started` };
 }
