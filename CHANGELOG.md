@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### New
+- **Team chats**: a lead and a worker (by default your Codex and Claude chat models) in one conversation with you. Address either with `@Name`; the members pass their messages to each other the same way, and each gets what it missed. With every report the lead gets the list of what the worker actually did (files read with the lines, commands with their results, changes), and a Claude worker can ask the lead mid-task with an `ask_lead` tool. The chat pauses after 20 messages between the members without you.
+
 ### Security
 - `duo-safe` (the entry point Codex may run without asking) could still reach things it promised to refuse: `continue` resumed pair runs (a writer with the run's access, plus the check command), `export -o` wrote run text to any path (such as a shell profile), and `rm` deleted runs. All three are refused now.
 - `review --commit` and `--base` passed their value to git unchecked, so `--commit=--output=FILE` made git overwrite a file. Values that start with `-` are refused.

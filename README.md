@@ -14,6 +14,7 @@ Runs on Linux, macOS and Windows.
 |---|---|
 | **Chat** | Claude Code or Codex in a project folder (or none), streaming: thinking, commands with their output, file edits as diffs, plans. Pick model, effort and permissions per chat. |
 | **Side by side** | One message, two answers. Hand either answer to the other for a critical review in one click. |
+| **Team chat** | A lead and a worker in one conversation with you. The lead plans and hands out tasks; the worker does them and can ask the lead mid-task; with every report the lead sees what the worker actually did. |
 | **Pair** | One model writes the code in its own git worktree, the other reviews every change, and they cycle until the writer says done, the reviewer approves, and your check command passes. You then apply the result, keep the branch, or discard it. |
 | **Debate** | Blind first answers, then cross-examination over a claim ledger until every claim is agreed (or the round cap). File citations are verified against your code. |
 | **Review** | Independent code reviews of a diff, then each reviewer confirms or rejects the others' findings. Issues found by both are the strongest signal. |
@@ -50,11 +51,24 @@ Notes:
 
 ## The desktop app
 
-- **Home**: one box for everything. Type, pick Claude, Codex, Both, Pair, Debate, Council, Ask or Review, press Enter.
+- **Home**: one box for everything. Type, pick Claude, Codex, Both, Team, Pair, Debate, Council, Ask or Review, press Enter.
 - **Chats**: live tool steps, thinking, diffs and plans; Claude permission modes from *Plan* to *Full access*, with *Ask before acting* approval cards; Codex sandbox modes; switch model or effort mid-conversation without losing the thread; retry, copy, hand an answer to the other model, or escalate a question to a debate, council or pair run.
 - **Runs**: a live view of every seat while it works, the rounds or cycles as they land, the claim ledger, findings, rankings, the report, and every turn's exact prompt, reply, tool calls and reasoning. Stop a run at any time; continue a finished one with a note.
 - **Always in view**: both plans' 5-hour and weekly usage, the project's git changes, and a token, time and cost trace.
 - **Quality of life**: command palette (`Ctrl/⌘ K`), keyboard shortcuts (`Ctrl/⌘ /`), pinned chats, search, drafts that survive restarts, desktop notifications when a long run finishes in the background, light and dark themes.
+
+## Team chat
+
+A chat with two members and you: a lead (your Codex chat model by default) and a worker (your Claude chat model), each named after its model, such as Astra and Opus. Start one from **New chat → Team chat**, or pick **Team** on the home screen.
+
+- Your messages go to the lead; start one with `@Opus` to talk to the worker directly.
+- The members address each other the same way: the lead's `@Opus …` goes to the worker, the worker's report goes back to the lead, and `@you` hands the floor back to you.
+- Everyone sees every message: each member also gets what it missed since its last turn.
+- With every report, the lead also gets the list of what the worker actually did, from its tool calls: each file read with the lines, each command with its result, each change. A claim such as "I read the whole plan" meets the record of what was read.
+- A Claude worker can ask the lead in the middle of its turn with an `ask_lead` tool, instead of guessing; the question and the answer show in the chat.
+- After 20 messages between the members without you, the chat pauses until you reply. **Stop** ends the whole exchange.
+
+Each member works with the model and permissions you set for it in the composer, like any chat: with *Ask before acting* you approve its commands in the window, with *Full access* it runs them on its own.
 
 ## Pair mode
 
