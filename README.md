@@ -39,7 +39,7 @@ node bin/duo.js setup
 duo doctor
 ```
 
-`duo setup` adds an app launcher (the application menu on Linux, `~/Applications/Duo.app` on macOS, the Start menu on Windows), the `duo` and `duo-safe` commands, a `/duo` skill for Claude Code, a `$duo` skill for Codex, and a Codex rule that pre-approves `duo-safe`. `duo setup --uninstall` removes all of it.
+`duo setup` adds an app launcher (the application menu on Linux, `~/Applications/Duo.app` on macOS, the Start menu on Windows), the `duo` and `duo-safe` commands (on Windows for cmd, PowerShell and Git Bash, where Claude Code runs its commands), a `/duo` skill for Claude Code, a `$duo` skill for Codex, and a Codex rule that pre-approves `duo-safe`. `duo setup --uninstall` removes all of it.
 
 Then open **Duo** from your launcher, or run `duo gui`.
 
