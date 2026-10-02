@@ -3,7 +3,7 @@
  * sometimes Node plus a script (npm installs on Windows only provide .cmd wrappers, which cannot be
  * spawned without a shell).
  */
-import { execFileSync, spawnSync, type SpawnSyncOptions } from 'node:child_process';
+import { execFileSync, spawn, spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
@@ -122,6 +122,29 @@ export function resolveClaude(o: BinOverrides = {}): BinSpec {
 /** Run a CLI synchronously (version checks, model catalog, login status). */
 export function runBin(bin: BinSpec, args: string[], opts: SpawnSyncOptions = {}) {
   return spawnSync(bin.command, [...bin.args, ...args], { windowsHide: true, ...opts, env: { ...process.env, ...bin.env, ...(opts.env ?? {}) } });
+}
+
+/**
+ * The same without blocking: for calls that take minutes (an update, a live sign-in test), during
+ * which the GUI server must keep streaming chats and answering permission requests.
+ */
+export function runBinAsync(bin: BinSpec, args: string[], opts: { cwd?: string; input?: string; timeout?: number } = {}): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const p = spawn(bin.command, [...bin.args, ...args], { cwd: opts.cwd, windowsHide: true, env: { ...process.env, ...bin.env }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    p.stdout.setEncoding('utf8').on('data', (d: string) => (stdout += d));
+    p.stderr.setEncoding('utf8').on('data', (d: string) => (stderr += d));
+    const timer = opts.timeout ? setTimeout(() => p.kill(), opts.timeout) : undefined;
+    const done = (status: number | null, extra = '') => {
+      clearTimeout(timer);
+      resolve({ status, stdout, stderr: stderr + extra });
+    };
+    p.on('error', (e) => done(null, e.message));
+    p.on('close', (code) => done(code));
+    p.stdin.on('error', () => undefined);
+    p.stdin.end(opts.input ?? '');
+  });
 }
 
 export function binVersion(bin: BinSpec): string {

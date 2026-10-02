@@ -259,7 +259,7 @@ function WorkspaceBar({ d, running }: { d: RunDetails; running: boolean }) {
       {!running && ws.mode === 'in-place' && (
         <>
           <button type="button" class="btn small primary" onClick={() => void workspaceAction(d.meta.id, 'keep')}><Icon name="check" size={13} /> Keep changes</button>
-          <button type="button" class="btn small ghost danger" onClick={() => confirmAction({ title: 'Revert the folder?', body: 'Every file the writer changed goes back to how it was when the run started, and files it added are deleted.', action: 'Revert', danger: true }, () => void workspaceAction(d.meta.id, 'discard'))}>Revert changes</button>
+          <button type="button" class="btn small ghost danger" onClick={() => confirmAction({ title: 'Revert the folder?', body: 'Every file changed since the run started goes back to how it was then, and files added since are deleted. That includes changes you or other programs made in this folder meanwhile: duo cannot tell them apart from the writer’s.', action: 'Revert', danger: true }, () => void workspaceAction(d.meta.id, 'discard'))}>Revert changes</button>
         </>
       )}
     </div>

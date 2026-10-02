@@ -30,6 +30,8 @@ const { debate } = await import('../src/protocols/debate.ts');
 const { pair } = await import('../src/protocols/pair.ts');
 const { parseSeat } = await import('../src/seats.ts');
 const { finishWorkspace } = await import('../src/worktree.ts');
+const { continueRun } = await import('../src/protocols/continue.ts');
+const { RunStore } = await import('../src/store.ts');
 
 const cfg = loadConfig();
 const D = cfg.defaults;
@@ -146,4 +148,25 @@ test('pair: the writer works in a worktree, the reviewer approves, and Apply bri
   assert.ok(r.ok, r.message);
   assert.ok(existsSync(join(repo, 'duo-fake.txt')), 'applied to the user folder');
   assert.ok(!existsSync(ws.path), 'the worktree is gone');
+});
+
+test('a pair run cannot be continued from duo-safe, and a continuation that cannot start leaves the workspace where it was', async () => {
+  const repo = join(tmp, 'repo-continue');
+  execFileSync('git', ['init', '-q', repo]);
+  writeFileSync(join(repo, 'README.md'), '# demo\n');
+  execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A']);
+  execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init']);
+  const ctx = ctxFor('pair', ['codex:gpt-6-sol@high', 'claude:opus@high'], { cwd: repo, rounds: 1, brief: 'Add a file that says hello.' });
+  await pair(ctx, { isolation: 'worktree', writerAccess: 'full', check: 'node --version' });
+  const id = ctx.store.meta.id;
+  await assert.rejects(continueRun(cfg, id, 'keep going', { rounds: 1, quiet: true, safe: true }), /not available in duo-safe/);
+  process.env.FAKE_CLAUDE_MODE = 'no-start';
+  try {
+    await assert.rejects(continueRun(cfg, id, 'keep going', { rounds: 1, quiet: true, safe: false }));
+  } finally {
+    delete process.env.FAKE_CLAUDE_MODE;
+  }
+  const ws = RunStore.open(id).meta.workspace!;
+  assert.equal(ws.state, 'active', 'the run can still apply, keep or discard its worktree');
+  assert.ok(finishWorkspace(ws, 'discard', 'cleanup').ok);
 });

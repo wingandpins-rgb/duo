@@ -14,7 +14,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
-import { binVersion, runBin } from '../bins.ts';
+import { binVersion, runBinAsync } from '../bins.ts';
 import { CLAUDE_MODELS, codexCatalog, loadConfig, resolveClaudeBin, resolveCodexBin, saveConfig } from '../config.ts';
 import { liveChecks, runDoctor } from '../doctor.ts';
 import { sanitizeEnvironment } from '../env.ts';
@@ -38,6 +38,8 @@ function arg(name: string): string | undefined {
 }
 
 sanitizeEnvironment();
+// Transcripts, chats and tool output live here: private to this user when duo creates the folder.
+mkdirSync(DUO_HOME, { recursive: true, mode: 0o700 });
 const cfg = loadConfig();
 const bins = { codex: resolveCodexBin(cfg), claude: resolveClaudeBin(cfg) };
 const token = arg('token') ?? randomBytes(24).toString('base64url');
@@ -69,12 +71,22 @@ function hostOk(req: IncomingMessage): boolean {
   return /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(req.headers.host ?? '');
 }
 
-function authorized(req: IncomingMessage, url: URL): boolean {
+/** EventSource and the export window cannot send headers; no other request may carry the token in its URL. */
+const QUERY_TOKEN = /^\/api\/(events|runs\/[\w.-]+\/export)$/;
+let ownPort = 0;
+
+function bearer(req: IncomingMessage): string | undefined {
   const h = req.headers.authorization;
-  const given = h?.startsWith('Bearer ') ? h.slice(7) : url.searchParams.get('token');
+  return h?.startsWith('Bearer ') ? h.slice(7) : undefined;
+}
+
+function authorized(req: IncomingMessage, url: URL): boolean {
+  const given = bearer(req) ?? (req.method === 'GET' && QUERY_TOKEN.test(url.pathname) ? url.searchParams.get('token') : null);
   if (!given || !safeEqual(given, token)) return false;
+  // A browser request must come from this engine's own pages: a loopback name and this very port.
   const origin = req.headers.origin;
-  return !origin || /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(origin);
+  const m = origin ? /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):(\d+)$/.exec(origin) : undefined;
+  return !origin || (!!m && Number(m[2]) === ownPort);
 }
 
 async function body(req: IncomingMessage): Promise<any> {
@@ -113,7 +125,7 @@ function serveStatic(res: ServerResponse, path: string): boolean {
     'Content-Type': `${MIME[extname(file)] ?? 'application/octet-stream'}${text ? '; charset=utf-8' : ''}`,
     'Cache-Control': 'no-cache',
     'X-Content-Type-Options': 'nosniff',
-    ...(file.endsWith('.html') ? { 'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'" } : {}),
+    ...(file.endsWith('.html') ? { 'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" } : {}),
   });
   res.end(readFileSync(file));
   return true;
@@ -146,7 +158,7 @@ function projects(prefs: Prefs): string[] {
   };
   for (const c of chats.list()) note(c.cwd, c.updatedAt);
   for (const r of runs.list()) note(r.cwd, r.createdAt);
-  for (const p of (prefs.recentProjects as string[] | undefined) ?? []) note(p, '0');
+  for (const p of Array.isArray(prefs.recentProjects) ? prefs.recentProjects : []) if (typeof p === 'string') note(p, '0');
   return [...seen.entries()].sort((a, b) => b[1].localeCompare(a[1])).map(([p]) => p).filter((p) => existsSync(p)).slice(0, 30);
 }
 
@@ -186,23 +198,25 @@ let claudeUpdate: Promise<{ ok: boolean; output: string }> | undefined;
 type Handler = (m: RegExpMatchArray, req: IncomingMessage, url: URL, res: ServerResponse) => Promise<unknown> | unknown;
 const routes: [string, RegExp, Handler][] = [
   ['GET', /^\/api\/state$/, () => state()],
-  ['GET', /^\/api\/quota$/, (_m, _r, url) => {
-    if (url.searchParams.get('refresh')) refreshQuota(cfg);
+  ['GET', /^\/api\/quota$/, async (_m, _r, url) => {
+    if (url.searchParams.get('refresh')) await refreshQuota(cfg);
     const q = snapshot();
     bus.emit({ t: 'quota', quota: q });
     return q;
   }],
   ['GET', /^\/api\/prefs$/, () => readPrefs()],
-  ['PUT', /^\/api\/prefs$/, async (_m, req) => writePrefs(await body(req))],
-  ['GET', /^\/api\/doctor$/, (_m, _r, url) => {
+  ['PUT', /^\/api\/prefs$/, async (_m, req) => {
+    const b = await body(req);
+    if (!b || typeof b !== 'object' || Array.isArray(b)) throw new HttpError(400, 'preferences must be an object');
+    return writePrefs(b);
+  }],
+  ['GET', /^\/api\/doctor$/, async (_m, _r, url) => {
     const c = loadConfig();
-    return url.searchParams.get('live') ? [...runDoctor(c), ...liveChecks(c)] : runDoctor(c);
+    return url.searchParams.get('live') ? [...runDoctor(c), ...(await liveChecks(c))] : runDoctor(c);
   }],
   ['POST', /^\/api\/maintenance\/update-claude$/, async () => {
-    claudeUpdate ??= new Promise((resolve) => {
-      const r = runBin(bins.claude, ['update'], { encoding: 'utf8', timeout: 300_000 });
-      resolve({ ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().slice(-4000) });
-    });
+    // Asynchronous, so chats keep streaming while it runs, and a second click joins the first.
+    claudeUpdate ??= runBinAsync(bins.claude, ['update'], { timeout: 300_000 }).then((r) => ({ ok: r.status === 0, output: `${r.stdout}${r.stderr}`.trim().slice(-4000) }));
     const out = await claudeUpdate;
     claudeUpdate = undefined;
     return { ...out, version: binVersion(bins.claude) };
@@ -230,10 +244,6 @@ const routes: [string, RegExp, Handler][] = [
     if (!['allow', 'allow_session', 'deny'].includes(b.decision)) throw new HttpError(400, 'decision must be allow, allow_session or deny');
     return { ok: perms.decide(m[1], b.decision, b.message) };
   }],
-  ['POST', /^\/api\/internal\/permission$/, async (_m, req) => {
-    const b = await body(req);
-    return perms.request(String(b.chat), String(b.tool), b.input);
-  }],
   ['POST', /^\/api\/internal\/shutdown$/, () => {
     setTimeout(() => void shutdown(), 10);
     return { ok: true };
@@ -252,11 +262,13 @@ const routes: [string, RegExp, Handler][] = [
   }],
   ['POST', /^\/api\/runs\/([\w.-]+)\/continue$/, async (m, req) => {
     const b = await body(req);
-    return runs.continue(m[1], String(b.note ?? ''), Math.max(1, Math.min(20, Number(b.rounds ?? 1))), b.chair || undefined);
+    return runs.continue(m[1], String(b.note ?? ''), Math.max(1, Math.min(20, Math.floor(Number(b.rounds ?? 1)) || 1)), b.chair || undefined);
   }],
   ['GET', /^\/api\/runs\/([\w.-]+)\/export$/, (m, _r, url, res) => {
     const md = url.searchParams.get('format') === 'md';
-    send(res, 200, md ? runs.markdown(m[1]) : runs.html(m[1]), md ? 'text/markdown' : 'text/html', md ? { 'Content-Disposition': `attachment; filename="${m[1]}.md"` } : {});
+    // The page is static model text served on this origin with the token in its URL: no scripts, ever.
+    const headers: Record<string, string> = md ? { 'Content-Disposition': `attachment; filename="${m[1]}.md"` } : { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'", 'Referrer-Policy': 'no-referrer' };
+    send(res, 200, md ? runs.markdown(m[1]) : runs.html(m[1]), md ? 'text/markdown' : 'text/html', headers);
     return undefined;
   }],
   ['PUT', /^\/api\/config$/, async (_m, req) => {
@@ -284,6 +296,13 @@ const server: Server = createServer(async (req, res) => {
       if (req.method === 'GET' && serveStatic(res, url.pathname)) return;
       throw new HttpError(404, 'not found');
     }
+    // A chat's permission bridge has its own secret, good for asking about that chat and nothing else.
+    if (req.method === 'POST' && url.pathname === '/api/internal/permission') {
+      const chat = perms.chatOf(bearer(req));
+      if (!chat) throw new HttpError(401, 'unauthorized');
+      const b = await body(req);
+      return send(res, 200, await perms.request(chat, String(b.tool), b.input));
+    }
     if (!authorized(req, url)) throw new HttpError(401, 'unauthorized');
     if (url.pathname === '/api/events') return bus.add(res);
     for (const [method, re, handler] of routes) {
@@ -304,20 +323,26 @@ const server: Server = createServer(async (req, res) => {
 function ready(): void {
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : 0;
+  ownPort = port;
   const url = `http://127.0.0.1:${port}`;
-  chats = new ChatManager(bus, cfg, bins, perms, { url, token }, MCP_SCRIPT);
+  chats = new ChatManager(bus, cfg, bins, perms, { url }, MCP_SCRIPT);
   runs = new RunManager(bus, cfg);
   process.stdout.write(JSON.stringify({ ready: true, url, token, platform: IS_WIN ? 'win32' : IS_MAC ? 'darwin' : process.platform }) + '\n');
+  // Started from a terminal (npm run dev) rather than by the desktop shell: the link to open.
+  if (process.stdout.isTTY) process.stderr.write(`duo: open ${url}/#${token}\n`);
 }
 
 // A stable port keeps the window's origin, so the browser storage it uses survives a restart; if the
 // preferred port is taken, any free one will do.
+// (`ready` is registered once: a listen callback stays registered after a failed attempt, and would
+// run a second time after the fallback.)
 const preferred = Number(arg('port') ?? 0);
+server.once('listening', ready);
 server.once('error', (e: NodeJS.ErrnoException) => {
-  if (e.code === 'EADDRINUSE' && preferred) server.listen(0, '127.0.0.1', ready);
+  if (e.code === 'EADDRINUSE' && preferred) server.listen(0, '127.0.0.1');
   else throw e;
 });
-server.listen(preferred, '127.0.0.1', ready);
+server.listen(preferred, '127.0.0.1');
 
 let closing = false;
 async function shutdown(): Promise<void> {

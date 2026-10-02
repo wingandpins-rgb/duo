@@ -16,6 +16,8 @@ const sid = valueOf(args, '--session-id') ?? valueOf(args, '--resume') ?? 'fake-
 const schema = valueOf(args, '--json-schema');
 const mode = process.env.FAKE_CLAUDE_MODE ?? '';
 record({ cli: 'claude', args, cwd: process.cwd() });
+// A CLI that cannot start at all (expired install, broken update).
+if (mode === 'no-start') process.exit(1);
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');
 out({ type: 'system', subtype: 'init', session_id: sid, model: 'claude-fake' });
 

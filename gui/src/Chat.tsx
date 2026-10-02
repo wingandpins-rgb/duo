@@ -49,10 +49,17 @@ function useDraft(key: string): [string, (v: string) => void] {
 
 function parseInput(b: Pick<Block, 'input'>): any {
   try {
-    return JSON.parse(b.input || '{}');
+    const v = JSON.parse(b.input || '{}');
+    // A plain-text input (a web search for "null" or "42") is not an object to read fields from.
+    return v !== null && typeof v === 'object' ? v : b.input ?? '';
   } catch {
     return b.input ?? '';
   }
+}
+
+/** Bidi controls and zero-width characters can make a command read differently from what runs: show them. */
+function reveal(text: string): string {
+  return text.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, (c) => `⟨U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}⟩`);
 }
 
 function rel(p: unknown, cwd?: string): string {
@@ -105,14 +112,14 @@ export function toolSummary(name: string | undefined, input: any, cwd?: string):
   }
 }
 
-function EditDiff({ input }: { input: any }) {
-  const edits: { old_string?: string; new_string?: string }[] = input.edits ?? [input];
+function EditDiff({ input, show = (t: string) => t }: { input: any; show?: (t: string) => string }) {
+  const edits: { old_string?: unknown; new_string?: unknown }[] = Array.isArray(input?.edits) ? input.edits : [input ?? {}];
   return (
     <div class="diff">
       {edits.map((e) => (
         <>
-          {(e.old_string ?? '').split('\n').map((l) => l && <div class="del">- {l}</div>)}
-          {(e.new_string ?? '').split('\n').map((l) => <div class="add">+ {l}</div>)}
+          {show(String(e?.old_string ?? '')).split('\n').map((l) => l && <div class="del">- {l}</div>)}
+          {show(String(e?.new_string ?? '')).split('\n').map((l) => <div class="add">+ {l}</div>)}
         </>
       ))}
     </div>
@@ -200,11 +207,11 @@ function PermissionCard({ req, engine, cwd }: { req: PermissionRequest; engine: 
   return (
     <div class="perm-card">
       <div class="perm-head"><Icon name="shield" size={15} /> <b>{engine === 'claude' ? 'Claude' : 'Codex'} wants to use {req.tool}</b></div>
-      <div class={`perm-title ${req.tool === 'Bash' ? 'mono' : ''}`}>{s.title}</div>
-      {s.detail && <div class="muted small">{s.detail}</div>}
-      {req.tool === 'Write' ? <pre class="io">{String(req.input?.content ?? '').slice(0, 20000)}</pre>
-        : isEdit ? <EditDiff input={req.input} />
-        : req.tool !== 'Bash' && <details><summary class="muted small">Details</summary><pre class="io">{JSON.stringify(req.input, null, 2)}</pre></details>}
+      <div class={`perm-title ${req.tool === 'Bash' ? 'mono' : ''}`}>{reveal(s.title)}</div>
+      {s.detail && <div class="muted small">{reveal(String(s.detail))}</div>}
+      {req.tool === 'Write' ? <pre class="io">{reveal(String(req.input?.content ?? '').slice(0, 20000))}</pre>
+        : isEdit ? <EditDiff input={req.input} show={reveal} />
+        : req.tool !== 'Bash' && <details><summary class="muted small">Details</summary><pre class="io">{reveal(JSON.stringify(req.input, null, 2) ?? '')}</pre></details>}
       <div class="perm-actions">
         <button type="button" class="btn primary" onClick={() => decide(req.id, 'allow')}><Icon name="check" size={14} /> Allow</button>
         <button type="button" class="btn" onClick={() => decide(req.id, 'allow_session')}>Always allow {req.tool} in this chat</button>

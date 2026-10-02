@@ -10,7 +10,7 @@ npm install
 npm run check
 ```
 
-Node.js 22.18 or newer runs the TypeScript sources directly; there is no build step for the engine. The GUI is bundled by esbuild when the engine starts (`node src/server/main.ts --port 47821 --token dev`, then open `http://127.0.0.1:47821/#dev`).
+Node.js 22.18 or newer runs the TypeScript sources directly; there is no build step for the engine. The GUI is bundled by esbuild when the engine starts (`npm run dev`, then open the link it prints; the token in it is new on every start).
 
 ## Tests
 

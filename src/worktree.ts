@@ -10,9 +10,10 @@
  *             there).
  */
 import { execFileSync, type ExecFileSyncOptions } from 'node:child_process';
-import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { WORKTREES_DIR } from './paths.ts';
+import { IS_WIN } from './platform.ts';
 
 export interface Workspace {
   mode: 'worktree' | 'in-place';
@@ -42,6 +43,13 @@ export interface WorkspaceDiff {
 
 const ID = ['-c', 'user.name=duo', '-c', 'user.email=duo@localhost', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false'];
 
+/**
+ * Agents control the files where these git calls run (the writer its whole workspace), so they run no
+ * fsmonitor command and no hooks. Configured filters and commands still come from the repository
+ * config, which is why a worktree's .git link is checked first (see assertWorktreeLink).
+ */
+const HARDEN = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
+
 function git(args: string[], opts: ExecFileSyncOptions & { input?: string } = {}): string {
   return String(execFileSync('git', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...opts }));
 }
@@ -63,7 +71,7 @@ export function workspaceOptions(cwd: string): { git: boolean; head: boolean; di
   const root = tryGit(['-C', cwd, 'rev-parse', '--show-toplevel']);
   if (!root) return { git: false, head: false, dirty: false };
   const head = !!tryGit(['-C', cwd, 'rev-parse', '--verify', '-q', 'HEAD']);
-  const dirty = !!tryGit(['-C', cwd, 'status', '--porcelain']);
+  const dirty = !!tryGit(['-C', cwd, ...HARDEN, 'status', '--porcelain']);
   return { git: true, head, dirty, root };
 }
 
@@ -105,7 +113,32 @@ export function prepareWorkspace(cwd: string, runId: string, title: string, mode
 }
 
 function gitArgs(ws: Workspace): string[] {
-  return ws.mode === 'worktree' ? ['-C', ws.path] : ['--git-dir', ws.gitDir!, '--work-tree', ws.path];
+  if (ws.mode !== 'worktree') return [...HARDEN, '--git-dir', ws.gitDir!, '--work-tree', ws.path];
+  assertWorktreeLink(ws);
+  return [...HARDEN, '-C', ws.path];
+}
+
+/**
+ * A worktree's .git is a one-line file pointing into the user's repository. A writer that replaced it
+ * (`git init`, or a gitdir: line naming a folder it can write) would hand git a config of its own, and
+ * git runs configured filters and commands during `add`: refuse instead of escaping the sandbox.
+ */
+function assertWorktreeLink(ws: Workspace): void {
+  let target: string | undefined;
+  try {
+    target = /^gitdir: *(.+?)\s*$/m.exec(readFileSync(join(ws.path, '.git'), 'utf8'))?.[1];
+  } catch {
+    /* missing, or a directory: not the link duo made */
+  }
+  const common = ws.repo && tryGit(['-C', ws.repo, 'rev-parse', '--git-common-dir']);
+  let ok = false;
+  try {
+    const rel = relative(realpathSync.native(join(resolve(ws.repo!, common!), 'worktrees')), realpathSync.native(resolve(ws.path, target!)));
+    ok = !!target && !!common && !!rel && !rel.startsWith('..') && !isAbsolute(rel) && !rel.includes(sep);
+  } catch {
+    /* a path that does not exist */
+  }
+  if (!ok) throw new Error(`the .git link in ${ws.path} no longer points into ${ws.repo}, so duo will not run git there (its config could run commands); discard this run, or inspect the folder yourself`);
 }
 
 /** Everything the writer changed since the start, new files included. */
@@ -176,12 +209,17 @@ export function discardWorkspace(ws: Workspace): { ok: boolean; message: string 
   return { ok: true, message: ws.mode === 'worktree' ? `removed the worktree and branch ${ws.branch}` : 'removed duo\'s snapshot; the changes stay in the folder' };
 }
 
-/** Run the user's check command in the workspace (their command, their shell). */
-export async function runCheck(command: string, cwd: string, timeoutMs = 15 * 60_000): Promise<{ command: string; exitCode: number | null; output: string; durationMs: number; timedOut: boolean }> {
-  const { spawn } = await import('node:child_process');
+/**
+ * Run the user's check command in the workspace (their command, their shell). A timeout, a cancelled
+ * run, or duo exiting stops everything the command started, not only the shell: a test runner or
+ * server left behind would otherwise hold the output pipes open and keep the run waiting.
+ */
+export async function runCheck(command: string, cwd: string, timeoutMs = 15 * 60_000, signal?: AbortSignal): Promise<{ command: string; exitCode: number | null; output: string; durationMs: number; timedOut: boolean }> {
+  const { spawn, spawnSync } = await import('node:child_process');
   const started = Date.now();
   return new Promise((resolve) => {
-    const p = spawn(command, { cwd, shell: true, windowsHide: true, env: process.env });
+    // Its own process group on Linux and macOS, so the whole tree can be signalled at once.
+    const p = spawn(command, { cwd, shell: true, windowsHide: true, env: process.env, detached: !IS_WIN });
     let out = '';
     const add = (d: Buffer) => {
       out += d.toString('utf8');
@@ -189,13 +227,35 @@ export async function runCheck(command: string, cwd: string, timeoutMs = 15 * 60
     };
     p.stdout?.on('data', add);
     p.stderr?.on('data', add);
+    let closed = false;
+    const kill = (sig: NodeJS.Signals) => {
+      if (closed || p.pid === undefined) return;
+      try {
+        if (IS_WIN) spawnSync('taskkill', ['/pid', String(p.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+        else process.kill(-p.pid, sig);
+      } catch {
+        /* already gone */
+      }
+    };
+    const stop = () => {
+      kill('SIGTERM');
+      setTimeout(() => kill('SIGKILL'), 3000).unref();
+    };
+    const onExit = () => kill('SIGKILL');
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      p.kill();
+      stop();
     }, timeoutMs);
+    if (signal?.aborted) stop();
+    signal?.addEventListener('abort', stop, { once: true });
+    process.once('exit', onExit);
     const done = (code: number | null) => {
+      if (closed) return;
+      closed = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', stop);
+      process.removeListener('exit', onExit);
       const tail = out.length > 12_000 ? `…\n${out.slice(-12_000)}` : out;
       resolve({ command, exitCode: code, output: tail, durationMs: Date.now() - started, timedOut });
     };
@@ -212,7 +272,9 @@ export function revertInPlace(ws: Workspace): { ok: boolean; message: string } {
   if (ws.mode !== 'in-place' || !ws.gitDir) return { ok: false, message: 'only in-place runs can be reverted' };
   const g = gitArgs(ws);
   git([...g, ...ID, 'add', '-A']);
-  const added = git([...g, 'diff', '--cached', '--name-only', '--diff-filter=A', ws.base]).split('\n').filter(Boolean);
+  // -z: names exactly as stored (no quoting of unusual characters); --no-renames: a file the writer
+  // renamed counts as added under its new name, so it is removed too.
+  const added = git([...g, 'diff', '--cached', '--name-only', '-z', '--no-renames', '--diff-filter=A', ws.base]).split('\0').filter(Boolean);
   git([...g, 'checkout', ws.base, '--', '.']);
   for (const f of added) rmSync(join(ws.path, f), { force: true });
   return { ok: true, message: `restored ${ws.path} to the snapshot taken before the writer started` };

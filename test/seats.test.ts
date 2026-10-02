@@ -49,6 +49,13 @@ test('raw cfg is allowed but never for sandbox/approval/shell keys', () => {
   }
 });
 
+test('raw cfg cannot redirect requests, add tools or switch on experiments', () => {
+  for (const k of ['chatgpt_base_url', 'openai_base_url', 'experimental_bearer_token', 'use_experimental_x', 'features.js_repl', 'tools.web_search', 'js_repl_node_path', 'connectors.x', 'apps.x.enabled']) {
+    assert.throws(() => parseSeat(`codex:gpt-6-sol+cfg:${k}="x"`, 'A', D), SeatError, k);
+  }
+  assert.deepEqual(parseSeat('codex:gpt-6-sol+cfg:model_context_window=200000', 'A', D).cfg, { model_context_window: '200000' });
+});
+
 test('safe mode refuses cfg passthrough and WebFetch', () => {
   assert.throws(() => parseSeat('codex:gpt-6-sol+cfg:model_verbosity="high"', 'A', D, { safe: true }), /duo-safe/);
   assert.throws(() => parseSeat('claude:opus+fetch', 'A', D, { safe: true }), /duo-safe/);

@@ -23,19 +23,30 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, '--no-pager', ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
+/** A branch or commit given by the user (or by a caller of duo-safe): git must never read it as an option such as --output=FILE. */
+function revision(value: string | undefined, what: string): string {
+  const v = (value ?? '').trim();
+  if (!v || v.startsWith('-')) throw new Error(`bad ${what} "${value ?? ''}": expected a branch, tag or commit`);
+  return v;
+}
+
 /** The material under review, as text for the prompt (read-only git commands only). */
 export function buildTarget(cwd: string, t: ReviewTarget, maxChars: number): { label: string; text: string } {
   let label: string;
   let text: string;
   switch (t.kind) {
-    case 'commit':
-      label = `commit ${t.value}`;
-      text = git(cwd, ['show', '--no-color', '--no-ext-diff', '--stat', '--patch', t.value!]);
+    case 'commit': {
+      const commit = revision(t.value, 'commit');
+      label = `commit ${commit}`;
+      text = git(cwd, ['show', '--no-color', '--no-ext-diff', '--stat', '--patch', commit]);
       break;
-    case 'base':
-      label = `changes on this branch relative to ${t.value}`;
-      text = git(cwd, ['diff', '--no-color', '--no-ext-diff', `${t.value}...HEAD`]);
+    }
+    case 'base': {
+      const base = revision(t.value, 'base');
+      label = `changes on this branch relative to ${base}`;
+      text = git(cwd, ['diff', '--no-color', '--no-ext-diff', `${base}...HEAD`]);
       break;
+    }
     case 'files':
       label = `files: ${t.files!.join(', ')}`;
       text = t.files!.map((f) => `### ${f}\n\`\`\`\n${readFileSync(f, 'utf8')}\n\`\`\``).join('\n\n');

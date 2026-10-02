@@ -25,15 +25,19 @@ const ENGINE_ALIASES: Record<string, Engine> = {
 };
 
 /**
- * Codex config keys a seat may never set: they would widen the sandbox, approvals, network, or what
- * the process can run. Seats are read-only discussion participants by design.
+ * Codex config keys a seat may never set: they would widen the sandbox, approvals, network, the tools
+ * a seat has, what the process can run, or where its requests (and the sign-in token) go. Seats are
+ * read-only discussion participants by design.
  */
 const CFG_DENY = new Set([
   'sandbox_mode', 'sandbox_workspace_write', 'approval_policy', 'approvals_reviewer', 'permissions',
   'default_permissions', 'shell_environment_policy', 'mcp_servers', 'hooks', 'notify', 'model_provider',
   'model_providers', 'projects', 'profile', 'profiles', 'skills', 'plugins', 'marketplaces', 'network',
-  'experimental_use_unified_exec_tool', 'zsh_path', 'js_repl', 'otel', 'history',
+  'zsh_path', 'otel', 'history', 'chatgpt_base_url', 'openai_base_url', 'model_catalog_url', 'features',
+  'tools', 'apps', 'connectors',
 ]);
+/** Whole families: experimental switches (one sets a bearer token), and the JS REPL's node binary and module paths. */
+const CFG_DENY_PREFIX = ['experimental_', 'use_experimental_', 'js_repl'];
 
 export interface Seat {
   /** A, B, C... in the order given; used in claim ids and file names. */
@@ -117,7 +121,8 @@ function applyOption(seat: Seat, key: string, value: string, spec: string, safe:
     if (safe) throw new SeatError('raw Codex config (cfg:) is disabled in duo-safe');
     const cfgKey = key.slice(4);
     if (!/^[A-Za-z0-9_.-]+$/.test(cfgKey)) throw new SeatError(`bad config key "${cfgKey}"`);
-    if (CFG_DENY.has(cfgKey.split('.')[0])) throw new SeatError(`config key "${cfgKey}" is not allowed on a seat`);
+    const top = cfgKey.split('.')[0];
+    if (CFG_DENY.has(top) || CFG_DENY_PREFIX.some((p) => top.startsWith(p))) throw new SeatError(`config key "${cfgKey}" is not allowed on a seat`);
     seat.cfg[cfgKey] = need(value, key, spec);
     return;
   }

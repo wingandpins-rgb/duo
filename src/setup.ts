@@ -3,7 +3,7 @@
  * Linux, macOS and Windows. Everything it writes is listed, and `duo setup --uninstall` removes it.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
@@ -46,6 +46,24 @@ function lstatSafe(p: string) {
   }
 }
 
+/** A `duo` or `duo-safe` command link that setup made (from this or another duo checkout), not some other tool's. */
+function ourLink(link: string, name: string): boolean {
+  try {
+    return readlinkSync(link).endsWith(join('bin', `${name}.js`));
+  } catch {
+    return false;
+  }
+}
+
+/** Duo.app as setup writes it: another app may be called Duo too, and it must never be deleted. */
+function ourMacApp(): boolean {
+  try {
+    return readFileSync(join(MAC_APP, 'Contents', 'Info.plist'), 'utf8').includes('<string>dev.duo.app</string>');
+  } catch {
+    return false;
+  }
+}
+
 function commands(log: Log): void {
   const targets = [['duo', join(PROJECT_ROOT, 'bin', 'duo.js')], ['duo-safe', join(PROJECT_ROOT, 'bin', 'duo-safe.js')]] as const;
   if (IS_WIN) {
@@ -63,6 +81,7 @@ function commands(log: Log): void {
     const link = join(BIN_DIR, name);
     const st = lstatSafe(link);
     if (st && !st.isSymbolicLink()) throw new Error(`${link} exists and is not a symlink; refusing to replace it`);
+    if (st && !ourLink(link, name)) throw new Error(`${link} points to ${readlinkSync(link)}, not duo; refusing to replace it`);
     if (st) rmSync(link);
     symlinkSync(target, link);
     chmodSync(target, 0o755);
@@ -86,8 +105,9 @@ function codexRule(log: Log): void {
   writeFileSync(CODEX_RULE, [
     '# duo: lets Codex run duo-safe (the restricted duo entry point) without an approval prompt.',
     '# duo-safe needs network to reach the model APIs; its seats are read-only, and it refuses raw',
-    '# Codex config (cfg:), WebFetch, the GUI, setup and pair mode. The unrestricted `duo` command',
-    '# still asks for approval. Remove with `duo setup --uninstall` and restart the Codex app.',
+    '# Codex config (cfg:), WebFetch, the GUI, setup, pair mode (also continuing a pair run), apply,',
+    '# rm and export -o. The unrestricted `duo` command still asks for approval. Remove with',
+    '# `duo setup --uninstall` and restart the Codex app.',
     'prefix_rule(',
     `    pattern = [["duo-safe", ${JSON.stringify(safe)}]],`,
     '    decision = "allow",',
@@ -151,6 +171,7 @@ function launcher(log: Log): void {
   }
   if (IS_MAC) {
     const contents = join(MAC_APP, 'Contents');
+    if (existsSync(MAC_APP) && !ourMacApp()) throw new Error(`${MAC_APP} exists and was not created by duo setup; refusing to replace it`);
     rmSync(MAC_APP, { recursive: true, force: true });
     mkdirSync(join(contents, 'MacOS'), { recursive: true });
     mkdirSync(join(contents, 'Resources'), { recursive: true });
@@ -217,13 +238,14 @@ export function uninstall(log: Log): void {
   } else {
     for (const name of ['duo', 'duo-safe']) {
       const link = join(BIN_DIR, name);
-      if (lstatSafe(link)?.isSymbolicLink()) {
+      if (lstatSafe(link)?.isSymbolicLink() && ourLink(link, name)) {
         rmSync(link);
         removed(link);
       }
     }
   }
   for (const p of [CLAUDE_SKILL, CODEX_SKILL, CODEX_RULE, LINUX_DESKTOP, MAC_APP, WIN_SHORTCUT]) {
+    if (p === MAC_APP && !ourMacApp()) continue;
     if (existsSync(p)) {
       rmSync(p, { recursive: true, force: true });
       removed(p);

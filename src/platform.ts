@@ -70,7 +70,8 @@ export function nodeRunner(): { command: string; env: Record<string, string> } {
 export function openFolder(path: string): void {
   if (!existsSync(path)) throw new Error(`no such folder: ${path}`);
   const [cmd, args] = IS_WIN ? ['explorer.exe', [path]] : IS_MAC ? ['open', [path]] : ['xdg-open', [path]];
-  spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  // No file manager (xdg-open missing on a minimal system): nothing to show, and no reason to crash.
+  spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true }).on('error', () => undefined).unref();
 }
 
 /** "~/src/app" for display; the full path elsewhere. */

@@ -40,7 +40,8 @@ export function listDirs(path?: string, showHidden = false) {
 }
 
 function git(cwd: string, args: string[], max = 4 * 1024 * 1024): string {
-  return execFileSync('git', ['-C', cwd, '--no-pager', ...args], { encoding: 'utf8', maxBuffer: max, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+  // The Changes panel runs this on its own, in folders agents edit: no fsmonitor command from the repo config.
+  return execFileSync('git', ['-C', cwd, '-c', 'core.fsmonitor=false', '--no-pager', ...args], { encoding: 'utf8', maxBuffer: max, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
 }
 
 export function gitState(cwd: string) {

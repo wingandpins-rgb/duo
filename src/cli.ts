@@ -25,6 +25,8 @@ import { deleteRun, listRuns, RunStore } from './store.ts';
 
 assertNotNested();
 sanitizeEnvironment();
+// Transcripts and tool output live here: private to this user when duo creates the folder.
+mkdirSync(DUO_HOME, { recursive: true, mode: 0o700 });
 const SAFE = isSafeMode();
 // `duo trace | head` must end quietly when the reader goes away.
 for (const stream of [process.stdout, process.stderr]) {
@@ -115,6 +117,8 @@ function runOptions(cfg: Config, protocol: string, brief: string, flags: RunFlag
   const { seats, chair, preset } = seatsFrom(cfg, flags, min);
   const rounds = Number(flags.rounds ?? preset?.rounds ?? defaults.rounds);
   if (!Number.isInteger(rounds) || rounds < 1) fail('--rounds must be a positive integer', 2);
+  const minRounds = Number(flags.minRounds ?? 1);
+  if (!Number.isInteger(minRounds) || minRounds < 1) fail('--min-rounds must be a positive integer', 2);
   const workspace = flags.project !== false;
   const cwd = workspace ? resolve(flags.cwd ?? process.cwd()) : scratchFolder();
   return {
@@ -125,7 +129,7 @@ function runOptions(cfg: Config, protocol: string, brief: string, flags: RunFlag
     seats,
     chair,
     rounds,
-    minRounds: Number(flags.minRounds ?? 1),
+    minRounds,
     anon: !!flags.anon,
     quiet: !!flags.quiet,
     extra: { safe: SAFE },
@@ -265,7 +269,7 @@ addRunFlags(program.command('pair').argument('[task...]').description('one seat 
 
 program.command('apply').argument('<run>').description("finish a pair run's worktree: apply its changes to your folder (default), keep the branch, or discard it")
   .option('--keep-branch', 'commit on the duo/ branch and remove the worktree folder')
-  .option('--discard', 'remove the worktree and its branch')
+  .option('--discard', 'remove the worktree and its branch (in place: put the folder back as it was when the run started, including any change you made there meanwhile)')
   .action((ref: string, o: { keepBranch?: boolean; discard?: boolean }) => {
     if (SAFE) fail('apply is not available in duo-safe');
     const store = RunStore.open(ref);
@@ -286,6 +290,8 @@ program.command('continue').argument('<run>').argument('[message...]').descripti
   .option('-q, --quiet').option('--no-print').option('--json')
   .action(async (ref: string, words: string[], flags: RunFlags) => {
     const cfg = loadConfig();
+    const rounds = Number(flags.rounds ?? 1);
+    if (!Number.isInteger(rounds) || rounds < 1) fail('--rounds must be a positive integer', 2);
     const note = words.join(' ').trim() || (await readStdin());
     let chair: Seat | undefined;
     try {
@@ -294,7 +300,7 @@ program.command('continue').argument('<run>').argument('[message...]').descripti
       fail((e as Error).message, 2);
     }
     let next: RunContext | undefined;
-    const report = await continueRun(cfg, ref, note, { rounds: Number(flags.rounds ?? 1), quiet: !!flags.quiet, chair, safe: SAFE, onContext: (c) => { next = c; cancelOnInterrupt(c); } });
+    const report = await continueRun(cfg, ref, note, { rounds, quiet: !!flags.quiet, chair, safe: SAFE, onContext: (c) => { next = c; cancelOnInterrupt(c); } });
     const latest = next!.store;
     if (flags.json) process.stdout.write(JSON.stringify({ id: latest.meta.id, dir: latest.dir, status: latest.meta.status, outcome: latest.meta.outcome }, null, 2) + '\n');
     else {
@@ -347,6 +353,8 @@ program.command('export').argument('[run]', 'run id or latest', 'latest').descri
   .addOption(new Option('--format <fmt>').choices(['html', 'json', 'md']).default('html'))
   .option('-o, --out <file>', 'output path (default: inside the run directory)')
   .action((ref: string, o: { format: string; out?: string }) => {
+    // Writing run text (which models wrote) to any path would let a sandboxed caller overwrite files.
+    if (SAFE && o.out) fail('export -o is not available in duo-safe; the export is written inside the run directory');
     const store = RunStore.open(ref);
     const m = store.meta;
     const report = store.readFile('report.md') ?? '';
@@ -366,16 +374,19 @@ program.command('export').argument('[run]', 'run id or latest', 'latest').descri
   });
 
 program.command('rm').argument('<run>').description('delete a run directory').action((ref: string) => {
+  if (SAFE) fail('rm is not available in duo-safe');
   const store = RunStore.open(ref);
+  const ws = store.meta.workspace;
+  if (ws?.state === 'active' && ws.mode === 'worktree') fail(`${store.meta.id} still has a worktree: \`duo apply ${store.meta.id}\` (or --keep-branch, --discard) first`);
   deleteRun(store.dir);
   process.stdout.write(`deleted ${store.meta.id}\n`);
 });
 
 program.command('quota').description('Codex and Claude subscription usage (free: read from local snapshots)')
   .option('--refresh', 'ping the cheapest model on each side first for a fresh snapshot')
-  .action((o: { refresh?: boolean }) => {
+  .action(async (o: { refresh?: boolean }) => {
     const cfg = loadConfig();
-    if (o.refresh) refreshQuota(cfg);
+    if (o.refresh) await refreshQuota(cfg);
     const q = snapshot();
     const c = formatWindows(q.codex?.windows, cfg.warnPercent);
     const a = formatWindows(q.claude?.windows, cfg.warnPercent);
@@ -411,7 +422,7 @@ program.command('doctor').description('check both CLIs, their logins and version
   const q = snapshot();
   process.stdout.write(`info  ${'codex quota'.padEnd(20)} ${formatWindows(q.codex?.windows, cfg.warnPercent).text}\n`);
   process.stdout.write(`info  ${'claude quota'.padEnd(20)} ${formatWindows(q.claude?.windows, cfg.warnPercent).text}\n`);
-  if (SAFE) process.stdout.write('info  safe mode            raw Codex config (cfg:), WebFetch, pair mode and the GUI are disabled\n');
+  if (SAFE) process.stdout.write('info  safe mode            raw Codex config (cfg:), WebFetch, pair mode (also continuing one), apply, rm, export -o, setup and the GUI are disabled\n');
   process.exitCode = checks.some((c) => c.level === 'fail') ? 1 : 0;
 });
 

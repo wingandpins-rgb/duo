@@ -195,18 +195,6 @@ async function createWindow() {
   win.once('ready-to-show', () => {
     if (!SMOKE) win.show();
   });
-  // Links out of the app open in the real browser; the app itself never navigates away.
-  win.webContents.setWindowOpenHandler(({ url: target }) => {
-    if (target.startsWith(origin + '/api/runs/')) return { action: 'allow' };
-    if (/^https?:/.test(target)) void shell.openExternal(target);
-    return { action: 'deny' };
-  });
-  win.webContents.on('will-navigate', (e, target) => {
-    if (!target.startsWith(origin)) {
-      e.preventDefault();
-      if (/^https?:/.test(target)) void shell.openExternal(target);
-    }
-  });
   await win.loadURL(`${origin}/#${token}`);
   if (SMOKE) {
     await new Promise((r) => setTimeout(r, 4000));
@@ -217,6 +205,35 @@ async function createWindow() {
     app.exit(ok ? 0 : 1);
   }
 }
+
+/** The engine's own pages. A prefix check is not enough: http://127.0.0.1:47100@evil.example/ starts with the origin too. */
+function sameOrigin(target) {
+  try {
+    return !!origin && new URL(target).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
+const EXTERNAL = /^(https?|mailto):/i;
+
+// Every window (the app and the run exports it opens): links out open in the real browser, and
+// nothing ever navigates away from the engine's origin.
+app.on('web-contents-created', (_e, contents) => {
+  contents.setWindowOpenHandler(({ url: target }) => {
+    if (sameOrigin(target) && new URL(target).pathname.startsWith('/api/runs/')) {
+      return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } } };
+    }
+    if (EXTERNAL.test(target)) void shell.openExternal(target);
+    return { action: 'deny' };
+  });
+  contents.on('will-navigate', (e, target) => {
+    // Within the engine's origin, only to the app itself (a reload after a new token).
+    if (sameOrigin(target) && new URL(target).pathname === '/') return;
+    e.preventDefault();
+    if (EXTERNAL.test(target)) void shell.openExternal(target);
+  });
+});
 
 ipcMain.handle('duo:pick-folder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] });
