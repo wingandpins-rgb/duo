@@ -29,6 +29,7 @@
 - Links to `mailto:` in model output did nothing.
 - Windows: Claude Code installed with npm was not found. duo picked the extensionless script npm writes for Git Bash, which Windows cannot run, and could not read the `.cmd` wrapper of a package that ships a native `.exe`; the setup check reported Claude as not signed in, and Claude seats and chats could not start.
 - Windows: stopping a Claude chat, finishing or cancelling a run, or quitting the app ended only the Claude process; what it had started (a shell, a dev server, a test watcher) kept running. The whole process tree is stopped now.
+- Windows: CLIs left running by a crash were never cleaned up, because the check that a leftover process is a coding CLI used `ps`. It works on Windows now, and there it also requires the process's parent to be gone, so a Claude Code you started yourself on a reused pid is never stopped.
 
 ## 0.2.0
 

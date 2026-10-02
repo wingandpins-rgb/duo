@@ -80,6 +80,25 @@ export function killTree(pid: number): boolean {
   return spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 }).status === 0;
 }
 
+/**
+ * Windows: the command line of a process whose parent is gone, or undefined (no such process, or its
+ * parent still runs). A live process at the parent's pid that started after the child is not its
+ * parent: Windows reuses pids quickly.
+ */
+export function orphanCommandLine(pid: number): string | undefined {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  const ps = [
+    '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+    `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'`,
+    'if (-not $p) { exit 1 }',
+    "$parent = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $p.ParentProcessId)",
+    'if ($parent -and $parent.CreationDate -le $p.CreationDate) { exit 2 }',
+    '$p.CommandLine',
+  ].join('; ');
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', windowsHide: true, timeout: 15_000 });
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : undefined;
+}
+
 /** Show a folder in the system file manager. */
 export function openFolder(path: string): void {
   if (!existsSync(path)) throw new Error(`no such folder: ${path}`);
