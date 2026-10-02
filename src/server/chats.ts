@@ -5,7 +5,7 @@
  */
 import { SessionManager, nullLogger } from '@enderfga/claw-orchestrator';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BinSpec } from '../bins.ts';
 import type { Config } from '../config.ts';
@@ -82,6 +82,8 @@ export interface ChatSession {
 
 export type ChatSummary = Omit<ChatSession, 'turns' | 'codexTotals'> & { turnCount: number; running: boolean; lastText?: string; draft?: boolean };
 
+const EDITABLE = ['title', 'spec', 'access', 'useCodexConfig', 'cwd', 'pinned'] as const;
+
 interface LiveTurn {
   turn: ChatTurn;
   translator: ClaudeTranslator | CodexTranslator;
@@ -103,17 +105,20 @@ export class ChatManager {
   private readonly cfg: Config;
   private readonly bins: { codex: BinSpec; claude: BinSpec };
   private readonly perms: PermissionBroker;
-  private readonly api: { url: string; token: string };
+  private readonly api: { url: string };
   private readonly mcpScript: string;
 
-  constructor(bus: Bus, cfg: Config, bins: { codex: BinSpec; claude: BinSpec }, perms: PermissionBroker, api: { url: string; token: string }, mcpScript: string) {
+  constructor(bus: Bus, cfg: Config, bins: { codex: BinSpec; claude: BinSpec }, perms: PermissionBroker, api: { url: string }, mcpScript: string) {
     this.bus = bus;
     this.cfg = cfg;
     this.bins = bins;
     this.perms = perms;
     this.api = api;
     this.mcpScript = mcpScript;
-    for (const d of [CHATS_DIR, TAPS_DIR, MCP_DIR]) mkdirSync(d, { recursive: true });
+    for (const d of [CHATS_DIR, TAPS_DIR]) mkdirSync(d, { recursive: true });
+    // The MCP configs hold a chat's permission-bridge secret (see mcpConfig): keep them private to this user.
+    mkdirSync(MCP_DIR, { recursive: true, mode: 0o700 });
+    chmodSync(MCP_DIR, 0o700);
     this.manager = new SessionManager(
       { claudeBin: claudeRoute('gui', bins.claude), maxConcurrentSessions: 64, sessionTtlMinutes: 12 * 60 },
       nullLogger,
@@ -142,7 +147,8 @@ export class ChatManager {
   }
 
   private save(s: ChatSession): void {
-    if (this.drafts.has(s.id)) return;
+    // A draft is not saved yet; a deleted chat must not come back when its last turn ends.
+    if (this.drafts.has(s.id) || !this.sessions.has(s.id)) return;
     const path = join(CHATS_DIR, `${s.id}.json`);
     writeFileSync(path + '.tmp', JSON.stringify(s));
     renameSync(path + '.tmp', path);
@@ -200,11 +206,12 @@ export class ChatManager {
     return s;
   }
 
-  update(id: string, patch: Partial<Pick<ChatSession, 'title' | 'spec' | 'access' | 'useCodexConfig' | 'cwd' | 'pinned'>>): ChatSession {
+  update(id: string, patch: Partial<Pick<ChatSession, (typeof EDITABLE)[number]>>): ChatSession {
     const s = this.get(id);
     if (patch.spec !== undefined || patch.access !== undefined) this.validate(s.engine, patch.spec ?? s.spec, patch.access ?? s.access);
     if (patch.cwd !== undefined && !existsSync(patch.cwd)) throw new Error(`folder does not exist: ${patch.cwd}`);
-    Object.assign(s, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
+    // Only the editable fields: the patch is the raw request body, and fields such as `id` name the file the chat is saved to.
+    Object.assign(s, Object.fromEntries(EDITABLE.filter((k) => patch[k] !== undefined).map((k) => [k, patch[k]])));
     if (patch.title === undefined && patch.pinned === undefined) s.updatedAt = new Date().toISOString();
     this.save(s);
     if (!this.drafts.has(s.id)) this.bus.emit({ t: 'chat', chat: this.summary(s) });
@@ -223,29 +230,36 @@ export class ChatManager {
     this.live.delete(id);
     this.sessions.delete(id);
     this.drafts.delete(id);
+    this.perms.forget(id);
     rmSync(join(CHATS_DIR, `${id}.json`), { force: true });
     rmSync(join(MCP_DIR, `${id}.json`), { force: true });
+    // The raw event stream holds every prompt, reply and tool output of the chat.
+    rmSync(join(TAPS_DIR, `${id}.jsonl`), { force: true });
     this.bus.emit({ t: 'chat_removed', id });
   }
 
   private mcpConfig(chat: string): string {
     const path = join(MCP_DIR, `${chat}.json`);
     const node = nodeRunner();
+    // Recreate rather than overwrite, so the private mode applies even to a file an older version wrote.
+    rmSync(path, { force: true });
     writeFileSync(path, JSON.stringify({
       mcpServers: {
         duo: {
           type: 'stdio',
           command: node.command,
           args: [this.mcpScript],
-          env: { ...node.env, DUO_API_URL: this.api.url, DUO_API_TOKEN: this.api.token, DUO_CHAT_ID: chat },
+          // Not the API token: a secret that can only ask the window about this chat.
+          env: { ...node.env, DUO_API_URL: this.api.url, DUO_API_TOKEN: this.perms.secretFor(chat), DUO_CHAT_ID: chat },
         },
       },
-    }));
+    }), { mode: 0o600 });
     return path;
   }
 
   /** Raw stream line from this chat's CLI: keep it for the trace and update the live view. */
   private onLine(chatId: string, line: string): void {
+    if (!this.sessions.has(chatId)) return;
     try {
       appendFileSync(join(TAPS_DIR, `${chatId}.jsonl`), line + '\n');
     } catch {
@@ -371,7 +385,14 @@ export class ChatManager {
     } catch (e) {
       return this.endTurn(s, turn, started, { error: `could not start ${s.engine}: ${(e as Error).message}` });
     }
-    if (stopped) return this.endTurn(s, turn, started, { stopped: true });
+    if (stopped) {
+      // Stopped (or deleted) while the session was starting: that session must not linger.
+      const l = this.live.get(s.id);
+      this.live.delete(s.id);
+      await this.manager.stopSession(clawName).catch(() => undefined);
+      if (l?.route) dropCodexRoute(l.route);
+      return this.endTurn(s, turn, started, { stopped: true });
+    }
 
     const fresh = () => {
       const translator = s.engine === 'claude' ? new ClaudeTranslator() : new CodexTranslator();
@@ -429,6 +450,8 @@ export class ChatManager {
 
   private endTurn(s: ChatSession, turn: ChatTurn, started: number, o: { stopped?: boolean; error?: string; usage?: Usage; costUsd?: number }): void {
     this.running.delete(s.id);
+    // Deleted while the turn ran: nothing to record or show.
+    if (!this.sessions.has(s.id)) return;
     turn.durationMs = Date.now() - started;
     if (o.usage) {
       if (s.engine === 'codex') {

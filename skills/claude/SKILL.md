@@ -2,7 +2,7 @@
 name: duo
 description: Run a traceable multi-model session between OpenAI Codex (the user's ChatGPT plan) and Claude (the user's Claude plan) with the duo harness - pair programming where one writes and the other reviews until both agree, debates that converge on a checked claim ledger, cross-validated code reviews, anonymized councils, or parallel asks, with every model and effort chosen by the user. Use only when the user explicitly asks to involve Codex, GPT, OpenAI or another model, or invokes /duo.
 argument-hint: "[pair|debate|review|council|ask|continue] [-s seat ...|-p preset] [options] <task, question or focus>"
-allowed-tools: Bash(duo:*), Read, Write
+allowed-tools: Bash(duo debate:*), Bash(duo review:*), Bash(duo council:*), Bash(duo ask:*), Bash(duo continue:*), Bash(duo runs:*), Bash(duo show:*), Bash(duo trace:*), Bash(duo quota:*), Bash(duo models:*), Read, Write(//tmp/**)
 ---
 
 # duo: Codex x Claude sessions
@@ -23,7 +23,8 @@ The user is an expert who chooses models deliberately. Pass their choices throug
 - `duo models` lists the models this Codex client can use (its catalog can lag behind rollouts; duo warns but does not block).
 
 ## Run it
-- Write any brief longer than one line to a file first, then pass `-f <file>`; quotes and backticks break shell arguments.
+- Write any brief longer than one line to a file in `/tmp` first, then pass `-f <file>`; quotes and backticks break shell arguments.
+- Discussion commands (debate, review, council, ask, continue) and the read-only ones run without asking. `duo pair` (the writer edits files and duo runs `--check`), `duo apply`, `duo export` and anything else ask the user first.
 - Pass `-C <project dir>` for anything about a project. For a general question with no project, pass `--no-project` so the seats get an empty folder instead of wandering through the current one.
 - Runs with high efforts or several rounds take minutes. Start them with `run_in_background: true` and `--no-print`, then wait for the completion notification without polling. Short runs can go in the foreground with a 10-minute timeout.
 

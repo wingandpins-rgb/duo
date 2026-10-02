@@ -53,6 +53,14 @@ function summary(m: RunMeta, running: boolean) {
 
 const PROTOCOLS: Protocol[] = ['debate', 'review', 'council', 'ask', 'pair'];
 
+/** A round count from the request body (a string would turn `first + rounds - 1` into concatenation). */
+function count(v: unknown, name: string, fallback: number): number {
+  if (v === undefined || v === null) return fallback;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 20) throw new Error(`${name} must be a whole number from 1 to 20`);
+  return n;
+}
+
 export class RunManager {
   private readonly active = new Map<string, RunContext>();
   private readonly seen = new Set<string>();
@@ -129,7 +137,11 @@ export class RunManager {
         this.bus.emit({ t: 'run_event', run: id, kind: 'error', text: (e as Error).message });
       } finally {
         this.active.delete(id);
-        this.bus.emit({ t: 'run_finished', run: summary(RunStore.open(id).meta, false) });
+        try {
+          this.bus.emit({ t: 'run_finished', run: summary(RunStore.open(id).meta, false) });
+        } catch {
+          /* deleted meanwhile (duo rm from a terminal); an unhandled rejection would end the engine */
+        }
       }
     })();
   }
@@ -166,8 +178,8 @@ export class RunManager {
       cwd,
       seats,
       chair,
-      rounds: req.rounds ?? (req.protocol === 'debate' ? 3 : req.protocol === 'review' ? 2 : req.protocol === 'pair' ? 4 : 1),
-      minRounds: req.minRounds ?? 1,
+      rounds: count(req.rounds, 'rounds', req.protocol === 'debate' ? 3 : req.protocol === 'review' ? 2 : req.protocol === 'pair' ? 4 : 1),
+      minRounds: count(req.minRounds, 'minRounds', 1),
       anon: !!req.anon,
       quiet: true,
       extra: { gui: true, ...(req.review ? { target: req.review } : {}), ...(pairSettings ? { pair: pairSettings } : {}) },

@@ -15,8 +15,8 @@
  *       meta.json              timing, tokens, cost, quota, ids, errors
  *       raw.jsonl              the untouched CLI event stream for this turn
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { RUNS_DIR } from './paths.ts';
 import type { Workspace } from './worktree.ts';
 
@@ -260,5 +260,8 @@ export function markInterrupted(isLive: (id: string) => boolean): void {
 }
 
 export function deleteRun(ref: string): void {
-  rmSync(resolveRunDir(ref), { recursive: true, force: true });
+  const dir = resolveRunDir(ref);
+  // A ref may also be a path to any folder that holds a run.json; only ever delete inside the runs folder.
+  if (!existsSync(RUNS_DIR) || realpathSync(dirname(dir)) !== realpathSync(RUNS_DIR)) throw new Error(`${dir} is not in duo's runs folder (${RUNS_DIR}); refusing to delete it`);
+  rmSync(dir, { recursive: true, force: true });
 }

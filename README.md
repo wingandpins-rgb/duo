@@ -72,7 +72,7 @@ duo pair -s codex:gpt-6-sol@high -s claude:opus@high --check "npm test" -C ~/cod
 
 It stops when the writer reports done, the reviewer approves with no P0/P1 finding open, and the check passes. It also stops if the writer is blocked, if the two deadlock on a finding (you decide), or at the cycle cap. Nothing touches your folder until you choose **Apply** (`duo apply <run>`), **Keep branch**, or **Discard**.
 
-Writer permissions: *Sandboxed* (Codex `workspace-write`; Claude auto-accepts edits and runs commands in its sandbox where available), *Sandboxed + network*, or *Full access*.
+Writer permissions: *Sandboxed* (Codex `workspace-write`; Claude auto-accepts edits and runs commands in its sandbox where available), *Sandboxed + network*, or *Full access*. The check command is yours and runs with your permissions, outside the sandbox, in the writer's workspace; the writer can change what it runs (tests, package scripts), so leave it out when the writer works from untrusted input.
 
 ## Command line
 
@@ -93,7 +93,7 @@ claude:sonnet@medium+name=Skeptic+persona=@~/personas/skeptic.md
 | `summary=auto\|concise\|detailed\|none` | codex | `model_reasoning_summary` |
 | `web[=live\|cached\|disabled]` | both | Codex web search / Claude WebSearch |
 | `tier=fast` (or `+fast`) | codex | `service_tier` (2× credits) |
-| `cfg:key=<toml>` | codex | raw `-c` override (sandbox, approval, shell and MCP keys are refused) |
+| `cfg:key=<toml>` | codex | raw `-c` override (keys for the sandbox, approvals, shell, MCP, tools, experiments or where requests go are refused) |
 | `fetch` | claude | WebFetch |
 | `dir=PATH` | claude | extra readable directory |
 | `name=`, `persona=text\|@file`, `timeout=SEC` | both | label, role instructions, per-turn timeout |
@@ -155,8 +155,8 @@ The app is an Electron window over a local engine bound to `127.0.0.1`. Every AP
 
 ## Using Duo from the agents
 
-- **Claude Code**: `/duo pair codex:gpt-6-sol@high writes, claude:opus@high reviews: <task>`, or just ask for a Codex debate. The skill passes your model and effort choices through unchanged.
-- **Codex**: `$duo ...` runs `duo-safe`, the restricted entry point (read-only seats, no `cfg:`, no WebFetch, no pair mode). The rule `duo setup` writes pre-approves only `duo-safe`; restart the Codex or ChatGPT app after setup.
+- **Claude Code**: `/duo pair codex:gpt-6-sol@high writes, claude:opus@high reviews: <task>`, or just ask for a Codex debate. The skill passes your model and effort choices through unchanged. It pre-approves only the discussion and read-only `duo` commands; Claude Code asks you before `duo pair`, `duo apply` and the rest.
+- **Codex**: `$duo ...` runs `duo-safe`, the restricted entry point (read-only seats, no `cfg:`, no WebFetch, no pair mode, not even continuing a pair run, no `apply`, `rm` or `export -o`). The rule `duo setup` writes pre-approves only `duo-safe`; restart the Codex or ChatGPT app after setup.
 
 ## Troubleshooting
 
@@ -170,7 +170,7 @@ The app is an Electron window over a local engine bound to `127.0.0.1`. Every AP
 
 ```bash
 npm run check     # strict typecheck (engine and GUI) and all tests
-npm run dev       # engine + GUI in a browser at http://127.0.0.1:47821/#dev
+npm run dev       # engine + GUI in a browser: open the link it prints (a fresh token each start)
 npm run smoke     # the desktop shell end to end, without showing a window
 ```
 

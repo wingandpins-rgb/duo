@@ -28,7 +28,7 @@
     "test": "node --test --test-reporter=spec \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.gui.json",
     "check": "npm run typecheck && npm test",
-    "dev": "node src/server/main.ts --port 47821 --token dev --rebuild",
+    "dev": "node src/server/main.ts --port 47821 --rebuild",
     "gui": "node bin/duo.js gui",
     "smoke": "node scripts/smoke.mjs",
     "build": "node -e \"import('./src/server/build.ts').then(m=>m.buildGui(true))\"",

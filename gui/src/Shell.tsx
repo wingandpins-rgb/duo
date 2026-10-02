@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { api, desktop, MOD } from './api.ts';
+import { api, desktop, isMac, MOD } from './api.ts';
 import { AutoTextarea, ChatView } from './Chat.tsx';
 import { MODE_ORDER, MODES, ModeDemo, type ModeId } from './demos.tsx';
 import { DiffView } from './Diff.tsx';
@@ -759,8 +759,9 @@ function Toasts() {
 export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
+      // ⌘ on macOS, where Ctrl+N, Ctrl+B and Ctrl+K edit text; and no key repeat (holding Ctrl+N would open chat after chat).
+      const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey;
+      if (!mod || e.repeat || e.isComposing) return;
       const k = e.key.toLowerCase();
       if (k === 'k') { e.preventDefault(); paletteOpen.value = !paletteOpen.value; }
       else if (k === 'b') { e.preventDefault(); toggleSidebar(); }

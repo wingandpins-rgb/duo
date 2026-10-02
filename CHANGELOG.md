@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Security
+- `duo-safe` (the entry point Codex may run without asking) could still reach things it promised to refuse: `continue` resumed pair runs (a writer with the run's access, plus the check command), `export -o` wrote run text to any path (such as a shell profile), and `rm` deleted runs. All three are refused now.
+- `review --commit` and `--base` passed their value to git unchecked, so `--commit=--output=FILE` made git overwrite a file. Values that start with `-` are refused.
+- A pair writer could replace its worktree's `.git` link (or point it at a folder it controls) and so give git its own config, which runs `core.fsmonitor`, filters and hooks outside the writer's sandbox the next time duo looked at the diff. duo now checks the link before running git there, and its own git calls in workspaces run no fsmonitor and no hooks. Duo's own "Keep branch" commit therefore skips your repository's commit hooks.
+- The permission bridge of *Ask before acting* chats was handed the full API token, in a file other local users could often read. It now gets a secret of its own that can only ask about its chat; the file is owner-only, and duo's data folder is created private.
+- Model output could restyle or cover the app (style sheets, inline styles, the app's own CSS classes, popovers, forms), move the window with SVG or image-map links, make a Copy button copy hidden text, and hide characters in the command an approval card shows. The sanitizer refuses all of these, and approval cards show bidi and zero-width characters.
+- The Electron shell compared origins with a string prefix, which `http://127.0.0.1:PORT@other.host/` passed; every window now compares exact origins and stays on the app.
+- The engine accepted the token in the query string of any request and an `Origin` of any loopback port. Only the event stream and run exports take it in the URL now, and only this engine's own port counts as its origin. `npm run dev` no longer uses the fixed token `dev`.
+- Citation checks read any file a model named, outside the project too and of any size; they now stay in the project folder and skip files over 8 MB.
+- The Codex `cfg:` denylist missed keys that redirect requests and the sign-in token (`chatgpt_base_url`, `openai_base_url`), add tools (`tools`, `features`, `apps`, `connectors`), or run a program (`js_repl_node_path`); those and all `experimental_*` keys are refused.
+- The `/duo` skill for Claude Code pre-approved every `duo` command, including `duo pair --check "<any command>"`; it now pre-approves only the discussion and read-only commands, and writing briefs in `/tmp`.
+- `duo setup` and `--uninstall` could delete an unrelated `~/Applications/Duo.app` or replace another tool's `duo` link; they now touch only what setup made.
+
+### Fixed
+- A check command that left processes behind (a test runner's workers, a server) could keep a pair run waiting forever, and cancelling a run did not stop it. The whole process tree is stopped on timeout, cancel and exit.
+- A continued pair run whose seats could not start left the worktree with neither run, so it could not be applied or discarded.
+- Discarding an in-place run did not delete added files with unusual names or renamed files, and the confirmation said only the writer's changes are reverted (any change made since the run started is).
+- `duo rm` deleted a pair run that still had a worktree (orphaning it), and accepted any folder with a `run.json`, which it then deleted.
+- Deleting a chat while it worked brought it back, could leave its CLI running, and kept its raw transcript and draft.
+- The engine crashed when no file manager was installed ("Show folder"), or when a running run's folder was deleted; started twice when its preferred port was taken; froze for minutes during "Update Claude Code", the live sign-in test and the quota refresh; and could be locked up by one malformed preference.
+- A Codex web search for the text `null` blanked the chat view.
+- `--min-rounds abc` silently disabled early convergence, and the GUI accepted round counts as strings.
+- On macOS, Ctrl+N, Ctrl+B and Ctrl+K in a text field opened a chat, the sidebar or the palette; shortcuts no longer repeat when held.
+- Links to `mailto:` in model output did nothing.
+
 ## 0.2.0
 
 ### New

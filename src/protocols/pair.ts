@@ -208,7 +208,7 @@ export async function pair(ctx: RunContext, settings: PairSettings, resume?: { s
       // ── check and diff ──
       if (settings.check) {
         ctx.log(`cycle ${cycle}: running \`${settings.check}\``);
-        lastCheck = await runCheck(settings.check, ws.cwd);
+        lastCheck = await runCheck(settings.check, ws.cwd, undefined, ctx.signal);
         state.checks.push({ ...lastCheck, cycle });
         c.check = { exitCode: lastCheck.exitCode, timedOut: lastCheck.timedOut, durationMs: lastCheck.durationMs };
         ctx.log(`check ${lastCheck.timedOut ? 'timed out' : lastCheck.exitCode === 0 ? 'passed' : `failed (exit ${lastCheck.exitCode})`} in ${(lastCheck.durationMs / 1000).toFixed(0)}s`);
@@ -366,6 +366,10 @@ export async function continuePair(cfg: Config, prev: RunStore, note: string, o:
     sessions.push(await ctx.engines.openSeat(seats[0], 'writer', { schema: PAIR_WRITER_SCHEMA, system: writerRules(rulesCtx), cwd: ws.cwd, access: writerSeatAccess(state.settings.writerAccess), resume: recs[0]! }));
     sessions.push(await ctx.engines.openSeat(seats[1], 'participant', { schema: PAIR_REVIEW_SCHEMA, system: reviewerRules(rulesCtx), cwd: ws.cwd, hideSkills: true, resume: recs[1]! }));
   } catch (e) {
+    // The new run never started working: the workspace stays with the run it came from, which can
+    // still apply, keep or discard it (otherwise neither run could).
+    prev.meta.workspace = ws;
+    prev.save();
     await ctx.fail(e, sessions);
     throw e;
   }

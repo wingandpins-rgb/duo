@@ -23,7 +23,8 @@ export const token = readToken();
 
 // A token delivered after load (same URL, new fragment) needs a fresh start.
 window.addEventListener('hashchange', () => {
-  if (location.hash.length > 1) {
+  // Only something shaped like a launch token: a #fragment link must not replace it.
+  if (/^#[\w-]{20,}$/.test(location.hash)) {
     try {
       sessionStorage.setItem(TOKEN_KEY, location.hash.slice(1));
     } catch {

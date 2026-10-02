@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { checkEvidence, parseRef } from '../src/citations.ts';
@@ -36,4 +38,32 @@ test('wrong lines, missing quote, missing file', () => {
 
 test('non-file evidence is not checked', () => {
   assert.equal(checkEvidence({ type: 'command', ref: 'pytest', quote: null }, WS).status, 'not_checked');
+});
+
+test('a file too large to check is skipped, not read whole', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'duo-cite-'));
+  try {
+    writeFileSync(join(dir, 'big.log'), Buffer.alloc(9 * 1024 * 1024, 'a'));
+    assert.equal(checkEvidence({ type: 'file', ref: 'big.log:1', quote: 'aaa' }, dir).status, 'not_checked');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('files outside the project are not read, however the path gets there', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'duo-cite-'));
+  try {
+    const project = join(dir, 'project');
+    const outside = join(dir, 'outside');
+    mkdirSync(project);
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'secret.txt'), 'token=abc\n');
+    // Junctions need no elevated symlink permission on Windows.
+    symlinkSync(outside, join(project, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
+    for (const ref of [`${join(outside, 'secret.txt')}:1`, '../outside/secret.txt:1', 'link/secret.txt:1']) {
+      assert.equal(checkEvidence({ type: 'file', ref, quote: 'token=abc' }, project).status, 'not_checked', ref);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

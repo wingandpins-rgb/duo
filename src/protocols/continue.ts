@@ -30,6 +30,9 @@ export async function continueRun(cfg: Config, ref: string, note: string, o: Con
   const prev = RunStore.open(ref);
   const pm = prev.meta;
   if (pm.protocol === 'pair') {
+    // A pair writer edits files (with full access, if the run was started that way) and duo runs
+    // the check command after it: neither may be reachable through the restricted entry point.
+    if (o.safe) throw new Error('pair writes files; continuing a pair run is not available in duo-safe');
     const { continuePair } = await import('./pair.ts');
     return continuePair(cfg, prev, note, o);
   }

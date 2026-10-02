@@ -80,6 +80,7 @@ export class RunContext {
   private readonly failedSeats = new Map<string, string>();
   private abortReason?: { status: 'cancelled' | 'failed'; reason: string };
   private abortWaiters: (() => void)[] = [];
+  private readonly aborter = new AbortController();
   private finished = false;
 
   private constructor(cfg: Config, opts: RunOptions, store: RunStore, quota: QuotaSnapshot, bins: Parameters<typeof makeEngines>[2]) {
@@ -150,12 +151,18 @@ export class RunContext {
     return !!this.abortReason;
   }
 
+  /** Fires when the run stops early, for work duo runs itself (the pair check command). */
+  get signal(): AbortSignal {
+    return this.aborter.signal;
+  }
+
   /** Stop the run: every seat's process is stopped, and the protocol ends at its next check. */
   abort(status: 'cancelled' | 'failed', reason: string): void {
     if (this.abortReason || this.finished) return;
     this.abortReason = { status, reason };
     this.log(status === 'cancelled' ? 'cancelled by the user; stopping the seats' : `stopping: ${reason}`);
     for (const w of this.abortWaiters.splice(0)) w();
+    this.aborter.abort();
     void this.engines.stopAll();
   }
 

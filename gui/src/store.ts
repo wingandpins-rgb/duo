@@ -337,13 +337,22 @@ function onEvent(e: any): void {
       if (s) app.value = { ...s, chats: upsertSummary<ChatSummary>(s.chats, e.chat, 'updatedAt') };
       if (chats.value[e.chat.id]) chats.value = { ...chats.value, [e.chat.id]: { ...chats.value[e.chat.id], ...e.chat } };
       break;
-    case 'chat_removed':
+    case 'chat_removed': {
       if (s) app.value = { ...s, chats: s.chats.filter((c) => c.id !== e.id) };
+      const { [e.id]: _gone, ...rest } = chats.value;
+      chats.value = rest;
+      // An unsent draft can hold anything that was pasted; it goes with its chat.
+      try {
+        localStorage.removeItem(`duo.draft.${e.id}`);
+      } catch {
+        /* storage blocked */
+      }
       if (view.value.kind === 'chat' && view.value.panes.includes(e.id)) {
         const panes = view.value.panes.filter((p) => p !== e.id);
         go(panes.length ? { kind: 'chat', panes } : { kind: 'home' });
       }
       break;
+    }
     case 'chat_turn': {
       const c = chats.value[e.chat];
       if (c && !c.turns.some((t) => t.id === e.turn.id)) chats.value = { ...chats.value, [e.chat]: { ...c, turns: [...c.turns, e.turn] } };
@@ -379,9 +388,16 @@ function onEvent(e: any): void {
     case 'run_started':
       if (s) app.value = { ...s, runs: upsertSummary<RunSummary>(s.runs, e.run, 'createdAt') };
       break;
-    case 'run_removed':
+    case 'run_removed': {
       if (s) app.value = { ...s, runs: s.runs.filter((r) => r.id !== e.id) };
+      const { [e.id]: _run, ...restRuns } = runs.value;
+      const { [e.id]: _live, ...restLive } = runLive.value;
+      const { [e.id]: _logs, ...restLogs } = runLogs.value;
+      runs.value = restRuns;
+      runLive.value = restLive;
+      runLogs.value = restLogs;
       break;
+    }
     case 'run_event':
       switch (e.kind) {
         case 'log':
