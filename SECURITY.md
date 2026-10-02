@@ -13,7 +13,7 @@ Duo can make AI agents edit files and run commands on your computer, so its loca
 - Discussion seats (debate, review, council, ask) are read-only: Codex runs in its read-only sandbox with `--ignore-user-config --ignore-rules`, and Claude gets only Read, Grep and Glob (plus web tools if you ask for them).
 - A pair-mode writer works in a separate git worktree by default and is sandboxed unless you choose full access. Nothing reaches your folder until you apply it.
 - The pair check command (`--check`) is your command, and duo runs it with your permissions, outside any sandbox, in the writer's workspace. The writer can change what it runs (a test, a `package.json` script), so a sandboxed writer is only as contained as its check: leave the check out when the writer works from untrusted input.
-- `duo-safe`, the entry point the Codex allow-rule permits, refuses raw Codex config, WebFetch, pair mode (starting or continuing a pair run), `apply`, `rm`, `export -o`, setup and the GUI, and takes no review revision that git could read as an option.
+- `duo-safe`, the entry point the Codex allow-rule permits, refuses raw Codex config, WebFetch, pair mode (starting or continuing a pair run), `apply`, `rm`, `export -o`, setup and the GUI, and takes no review revision that git could read as an option. It does read the files it is given (`-f`, `persona=@file`, `review --files` and `--plan`) with your permissions, the way seats read the project; Codex's own sandbox lets it read them too.
 - The `/duo` skill for Claude Code pre-approves only the discussion and read-only `duo` commands and writing briefs in `/tmp`; `duo pair`, `duo apply` and the rest ask first.
 - Seats run with `DUO_DEPTH` set, and Duo refuses to start under it, so a model cannot start Duo again.
 

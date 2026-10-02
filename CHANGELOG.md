@@ -23,6 +23,7 @@
 - Deleting a chat while it worked brought it back, could leave its CLI running, and kept its raw transcript and draft.
 - The engine crashed when no file manager was installed ("Show folder"), or when a running run's folder was deleted; started twice when its preferred port was taken; froze for minutes during "Update Claude Code", the live sign-in test and the quota refresh; and could be locked up by one malformed preference.
 - A Codex web search for the text `null` blanked the chat view.
+- Any error while loading a chat (not only a deleted chat) closed its pane.
 - `--min-rounds abc` silently disabled early convergence, and the GUI accepted round counts as strings.
 - On macOS, Ctrl+N, Ctrl+B and Ctrl+K in a text field opened a chat, the sidebar or the palette; shortcuts no longer repeat when held.
 - Links to `mailto:` in model output did nothing.

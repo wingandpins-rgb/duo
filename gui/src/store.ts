@@ -1,5 +1,5 @@
 import { batch, signal } from '@preact/signals';
-import { api, desktop, subscribe } from './api.ts';
+import { api, ApiError, desktop, subscribe } from './api.ts';
 import type { AppState, Block, ChatSession, ChatSummary, ChatTurn, DoctorCheck, Engine, LiveTurn, Prefs, Protocol, RunDetails, RunSummary, StartRun } from './types.ts';
 
 export type View =
@@ -150,10 +150,16 @@ export async function loadState(): Promise<void> {
 }
 
 export async function loadChat(id: string): Promise<void> {
-  const c = await api<ChatSession>(`/api/chats/${id}`).catch(() => undefined);
+  let gone = false;
+  const c = await api<ChatSession>(`/api/chats/${id}`).catch((e: Error) => {
+    // Only a chat that no longer exists closes its pane; any other error is shown and the pane stays.
+    if (e instanceof ApiError && e.status === 404) gone = true;
+    else toast(e.message);
+    return undefined;
+  });
   if (c) {
     chats.value = { ...chats.value, [id]: c };
-  } else if (view.value.kind === 'chat') {
+  } else if (gone && view.value.kind === 'chat') {
     const panes = view.value.panes.filter((p) => p !== id);
     go(panes.length ? { kind: 'chat', panes } : { kind: 'home' });
   }
