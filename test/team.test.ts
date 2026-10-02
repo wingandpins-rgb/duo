@@ -36,6 +36,7 @@ test('what the worker did is listed from its tool calls, with the lines it read 
     tool('shell', 'ctest -R sim', { exitCode: 0 }),
     tool('Edit', { file_path: join(cwd, 'src', 'a.cpp') }),
     tool('Grep', { pattern: 'Admit', path: join(cwd, 'src') }),
+    tool('ToolSearch', { query: 'select:mcp__duo__ask_lead' }),
     tool('mcp__duo__ask_lead', { question: 'which catalog?' }),
     { id: 'p', kind: 'patch', text: 'update src/b.cpp\nadd src/c.cpp', status: 'done' },
   ], cwd);

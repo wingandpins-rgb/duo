@@ -137,8 +137,8 @@ export function activity(blocks: readonly Block[], cwd: string): string[] {
         out.push(`searched the web for ${JSON.stringify(String(i.query ?? i.value ?? ''))}`);
         break;
       default:
-        // Its questions to the lead are in the conversation already.
-        if (b.name?.endsWith('ask_lead') || b.name === 'TodoWrite') break;
+        // Its questions to the lead are in the conversation already; the others are bookkeeping, not work.
+        if (b.name?.endsWith('ask_lead') || b.name === 'TodoWrite' || b.name === 'ToolSearch') break;
         out.push(`used ${b.name ?? 'a tool'}${failed}`);
     }
   }
