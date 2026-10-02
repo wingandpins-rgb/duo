@@ -18,7 +18,7 @@ import type { BinSpec } from './bins.ts';
 import type { Config } from './config.ts';
 import { DEPTH_VAR } from './env.ts';
 import { classifyError } from './errors.ts';
-import { claudeRoute, claudeSink, codexRoute, dropCodexRoute } from './hooks.ts';
+import { claudeErrSink, claudeRoute, claudeSink, codexRoute, dropCodexRoute } from './hooks.ts';
 import { CLAW_LEDGER_DIR, CLAW_WF_DIR } from './paths.ts';
 import { codexCredits } from './pricing.ts';
 import { saveClaudeQuota } from './quota.ts';
@@ -48,6 +48,8 @@ export interface SeatSession {
   live?: { n: number; round: number; kind: string; translator: ClaudeTranslator | CodexTranslator; pending: Set<Block>; timer?: ReturnType<typeof setTimeout> };
   codexRouteName?: string;
   claudeSinkId?: string;
+  /** Claude Code's notice that it could not start the sandbox this seat was given; reported once. */
+  sandboxOff?: { notice: string; reported: boolean };
 }
 
 export interface SendOpts {
@@ -193,6 +195,12 @@ export class Engines {
       record.claudeSessionId = sessionId;
       ss.claudeSinkId = sessionId;
       claudeSink(sessionId, onLine);
+      // Claude Code says on stderr when it cannot start the sandbox a writer gets (none on Windows
+      // yet): the writer's commands are then refused, and the user should see why.
+      claudeErrSink(sessionId, (line) => {
+        const notice = /Sandbox disabled:.*/.exec(line)?.[0];
+        if (notice && !ss.sandboxOff) ss.sandboxOff = { notice, reported: false };
+      });
       const tools = access.kind === 'write'
         ? undefined
         : ['Read', 'Grep', 'Glob', ...(seat.web ? ['WebSearch'] : []), ...(seat.fetch ? ['WebFetch'] : [])];
@@ -316,6 +324,11 @@ export class Engines {
     }
     // A reply the CLI completed is a success even if claw saw a recoverable error on the way.
     const transportError = res.error && !(parsed.completed && reply) ? res.error : undefined;
+    const warnings = [...parsed.warnings];
+    if (ss.sandboxOff && !ss.sandboxOff.reported) {
+      ss.sandboxOff.reported = true;
+      warnings.push(`Claude Code could not start its sandbox here ("${ss.sandboxOff.notice}"). The writer can edit files, but the commands it would have run in the sandbox are refused: a run cannot approve them. duo still runs your check command; Full access (--full-access) lets the writer run commands, without a sandbox.`);
+    }
     const turn: TurnRecord = {
       n,
       round: o.round,
@@ -335,7 +348,7 @@ export class Engines {
       rateLimits: parsed.rateLimits,
       verdict: typeof (structured as any)?.verdict === 'string' ? (structured as any).verdict : undefined,
       error: parsed.error || transportError || (!reply ? (this.stopped ? 'duo: run cancelled' : 'empty reply') : undefined),
-      warnings: parsed.warnings.length ? parsed.warnings : undefined,
+      warnings: warnings.length ? warnings : undefined,
     };
     this.run.writeTurn(turn, message, raw);
     return turn;
@@ -365,7 +378,10 @@ export class Engines {
   async close(): Promise<void> {
     for (const ss of this.sessions) {
       if (ss.codexRouteName) dropCodexRoute(ss.codexRouteName);
-      if (ss.claudeSinkId) claudeSink(ss.claudeSinkId, undefined);
+      if (ss.claudeSinkId) {
+        claudeSink(ss.claudeSinkId, undefined);
+        claudeErrSink(ss.claudeSinkId, undefined);
+      }
     }
     try {
       await this.manager.shutdown();

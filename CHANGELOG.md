@@ -12,7 +12,7 @@
 - The engine accepted the token in the query string of any request and an `Origin` of any loopback port. Only the event stream and run exports take it in the URL now, and only this engine's own port counts as its origin. `npm run dev` no longer uses the fixed token `dev`.
 - Citation checks read any file a model named, outside the project too and of any size; they now stay in the project folder and skip files over 8 MB.
 - The Codex `cfg:` denylist missed keys that redirect requests and the sign-in token (`chatgpt_base_url`, `openai_base_url`), add tools (`tools`, `features`, `apps`, `connectors`), or run a program (`js_repl_node_path`); those and all `experimental_*` keys are refused.
-- The `/duo` skill for Claude Code pre-approved every `duo` command, including `duo pair --check "<any command>"`; it now pre-approves only the discussion and read-only commands, and writing briefs in `/tmp`.
+- The `/duo` skill for Claude Code pre-approved every `duo` command, including `duo pair --check "<any command>"`; it now pre-approves only the discussion and read-only commands.
 - `duo setup` and `--uninstall` could delete an unrelated `~/Applications/Duo.app` or replace another tool's `duo` link; they now touch only what setup made.
 
 ### Fixed
@@ -27,6 +27,15 @@
 - `--min-rounds abc` silently disabled early convergence, and the GUI accepted round counts as strings.
 - On macOS, Ctrl+N, Ctrl+B and Ctrl+K in a text field opened a chat, the sidebar or the palette; shortcuts no longer repeat when held.
 - Links to `mailto:` in model output did nothing.
+- Windows: Claude Code installed with npm was not found. duo picked the extensionless script npm writes for Git Bash, which Windows cannot run, and could not read the `.cmd` wrapper of a package that ships a native `.exe`; the setup check reported Claude as not signed in, and Claude seats and chats could not start.
+- Windows: stopping a Claude chat, finishing or cancelling a run, or quitting the app ended only the Claude process; what it had started (a shell, a dev server, a test watcher) kept running. The whole process tree is stopped now.
+- Windows: CLIs left running by a crash were never cleaned up, because the check that a leftover process is a coding CLI used `ps`. It works on Windows now, and there it also requires the process's parent to be gone, so a Claude Code you started yourself on a reused pid is never stopped.
+- Windows: the `/duo` skill could not run `duo` (`command not found`): Claude Code runs commands in Git Bash, and setup wrote only `duo.cmd` and `duo-safe.cmd`. Setup now also writes the scripts Git Bash runs, as npm does for its own commands, and refuses to replace a `duo` command another package installed.
+- Windows: the `/duo` skill wrote briefs to `/tmp`, which is a different place for each program there: Claude Code's Write tool refused it, Git Bash reads it as your Temp folder, and Node as `C:\tmp`. The skill now passes briefs to duo on stdin in a quoted heredoc, on every OS, and no longer needs permission to write files.
+- Windows: a pair run on a repository with deep paths failed with "Filename too long": its worktree in duo's data folder adds about 100 characters to every path, past the 260 git allows there by default. duo's git calls in worktrees allow long paths now.
+- With `core.autocrlf=true` (the Git for Windows default), a pair worktree was checked out with Windows line endings but read back without them, so every line of a file the writer touched showed as changed; and discarding an in-place run converted every restored file to Windows line endings. Files now go into and out of duo's worktrees and snapshots byte for byte.
+- A sandboxed Claude writer whose sandbox Claude Code could not start (on Windows it has none yet) had its commands refused without any explanation. Its first turn now carries a warning with Claude Code's notice and the way out (Full access).
+- Windows: nothing said that a pair run's check command runs in cmd.exe; the app, `--help` and the README say so now.
 
 ## 0.2.0
 

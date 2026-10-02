@@ -125,6 +125,31 @@ test('a Claude process that died between turns is restarted on the same conversa
   }
 });
 
+test('closing a Claude seat also stops what its CLI started', { timeout: 30_000 }, async () => {
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  process.env.FAKE_CLAUDE_MODE = 'child';
+  rmSync(LOG, { force: true });
+  let child: number | undefined;
+  try {
+    await ask(ctxFor('ask', ['claude:sonnet@low']));
+    child = calls().find((c) => c.cli === 'claude' && c.child)?.child;
+    assert.ok(child, 'the fake CLI started a child');
+    // claw signals at once, and again (SIGKILL) after 3 seconds.
+    for (const end = Date.now() + 8_000; alive(child) && Date.now() < end; ) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(alive(child), false, 'the child outlived the seat');
+  } finally {
+    delete process.env.FAKE_CLAUDE_MODE;
+    if (child && alive(child)) process.kill(child);
+  }
+});
+
 test('pair: the writer works in a worktree, the reviewer approves, and Apply brings the change home', async () => {
   const repo = join(tmp, 'repo');
   execFileSync('git', ['init', '-q', repo]);
@@ -169,4 +194,25 @@ test('a pair run cannot be continued from duo-safe, and a continuation that cann
   const ws = RunStore.open(id).meta.workspace!;
   assert.equal(ws.state, 'active', 'the run can still apply, keep or discard its worktree');
   assert.ok(finishWorkspace(ws, 'discard', 'cleanup').ok);
+});
+
+test('a Claude writer whose sandbox could not start says so on its first turn, once', async () => {
+  const repo = join(tmp, 'repo-no-sandbox');
+  execFileSync('git', ['init', '-q', repo]);
+  writeFileSync(join(repo, 'README.md'), '# demo\n');
+  execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A']);
+  execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init']);
+  process.env.FAKE_CLAUDE_MODE = 'no-sandbox';
+  try {
+    const ctx = ctxFor('pair', ['claude:opus@high', 'codex:gpt-6-sol@high'], { cwd: repo, rounds: 2, brief: 'Add a file that says hello.' });
+    await pair(ctx, { isolation: 'worktree', writerAccess: 'sandboxed' });
+    const writer = ctx.store.meta.turns.filter((t) => t.seat === 'A');
+    assert.ok(writer.length >= 1);
+    assert.match(String(writer[0].warnings), /could not start its sandbox.*Windows sandbox is not active.*Full access/s);
+    const all = ctx.store.meta.turns.flatMap((t) => t.warnings ?? []).filter((w) => /could not start its sandbox/.test(w));
+    assert.equal(all.length, 1, 'reported once per seat');
+    assert.ok(finishWorkspace(ctx.store.meta.workspace!, 'discard', 'cleanup').ok);
+  } finally {
+    delete process.env.FAKE_CLAUDE_MODE;
+  }
 });

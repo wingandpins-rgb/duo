@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { IS_WIN } from '../platform.ts';
+import { GIT_PLATFORM_FLAGS, IS_WIN } from '../platform.ts';
 
 /** Windows drive roots that exist (C:\, D:\, ...), for browsing above a drive. */
 function drives(): string[] {
@@ -41,7 +41,7 @@ export function listDirs(path?: string, showHidden = false) {
 
 function git(cwd: string, args: string[], max = 4 * 1024 * 1024): string {
   // The Changes panel runs this on its own, in folders agents edit: no fsmonitor command from the repo config.
-  return execFileSync('git', ['-C', cwd, '-c', 'core.fsmonitor=false', '--no-pager', ...args], { encoding: 'utf8', maxBuffer: max, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+  return execFileSync('git', ['-C', cwd, ...GIT_PLATFORM_FLAGS, '-c', 'core.fsmonitor=false', '--no-pager', ...args], { encoding: 'utf8', maxBuffer: max, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
 }
 
 export function gitState(cwd: string) {

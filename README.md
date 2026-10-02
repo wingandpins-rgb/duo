@@ -39,7 +39,7 @@ node bin/duo.js setup
 duo doctor
 ```
 
-`duo setup` adds an app launcher (the application menu on Linux, `~/Applications/Duo.app` on macOS, the Start menu on Windows), the `duo` and `duo-safe` commands, a `/duo` skill for Claude Code, a `$duo` skill for Codex, and a Codex rule that pre-approves `duo-safe`. `duo setup --uninstall` removes all of it.
+`duo setup` adds an app launcher (the application menu on Linux, `~/Applications/Duo.app` on macOS, the Start menu on Windows), the `duo` and `duo-safe` commands (on Windows for cmd, PowerShell and Git Bash, where Claude Code runs its commands), a `/duo` skill for Claude Code, a `$duo` skill for Codex, and a Codex rule that pre-approves `duo-safe`. `duo setup --uninstall` removes all of it.
 
 Then open **Duo** from your launcher, or run `duo gui`.
 
@@ -72,7 +72,7 @@ duo pair -s codex:gpt-6-sol@high -s claude:opus@high --check "npm test" -C ~/cod
 
 It stops when the writer reports done, the reviewer approves with no P0/P1 finding open, and the check passes. It also stops if the writer is blocked, if the two deadlock on a finding (you decide), or at the cycle cap. Nothing touches your folder until you choose **Apply** (`duo apply <run>`), **Keep branch**, or **Discard**.
 
-Writer permissions: *Sandboxed* (Codex `workspace-write`; Claude auto-accepts edits and runs commands in its sandbox where available), *Sandboxed + network*, or *Full access*. The check command is yours and runs with your permissions, outside the sandbox, in the writer's workspace; the writer can change what it runs (tests, package scripts), so leave it out when the writer works from untrusted input.
+Writer permissions: *Sandboxed* (Codex `workspace-write`; Claude auto-accepts edits and runs commands in its sandbox where available; Claude Code has none on Windows yet, so there a sandboxed Claude writer can edit but its commands are refused, and its first turn carries a warning saying so), *Sandboxed + network*, or *Full access*. The check command is yours and runs with your permissions, outside the sandbox, in the writer's workspace (on Windows in cmd.exe, so `npm test` works but bash syntax does not); the writer can change what it runs (tests, package scripts), so leave it out when the writer works from untrusted input.
 
 ## Command line
 

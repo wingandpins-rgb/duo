@@ -1,8 +1,9 @@
 /**
  * Operating-system specifics in one place: where duo keeps its files, how to find an executable,
- * how to run a Node script, and how to show a folder. Everything else stays platform-neutral.
+ * how to run a Node script, how to stop a process tree, and how to show a folder. Everything else
+ * stays platform-neutral.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -45,9 +46,14 @@ export function isExecutable(p: string): boolean {
   }
 }
 
-/** PATH lookup that honours PATHEXT on Windows (claude.exe, codex.cmd, ...). */
+/**
+ * PATH lookup that honours PATHEXT on Windows (claude.exe, codex.cmd, ...). There a file without one
+ * of those extensions is not a program: npm puts an extensionless script for Git Bash next to every
+ * `.cmd` it writes, and Windows cannot start it.
+ */
 export function which(name: string): string | undefined {
-  const exts = IS_WIN ? ['', ...(process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').map((e) => e.toLowerCase())] : [''];
+  const pathExts = (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean).map((e) => e.toLowerCase());
+  const exts = !IS_WIN || pathExts.some((e) => name.toLowerCase().endsWith(e)) ? [''] : pathExts;
   for (const dir of (process.env.PATH || '').split(delimiter)) {
     if (!dir) continue;
     for (const ext of exts) {
@@ -64,6 +70,39 @@ export function which(name: string): string | undefined {
  */
 export function nodeRunner(): { command: string; env: Record<string, string> } {
   return { command: process.execPath, env: process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {} };
+}
+
+/**
+ * Flags for git in the worktrees duo creates. On Windows a worktree in duo's data folder adds about
+ * 100 characters to every path, and without core.longpaths git cannot create a path past 260.
+ */
+export const GIT_PLATFORM_FLAGS: readonly string[] = IS_WIN ? ['-c', 'core.longpaths=true'] : [];
+
+/**
+ * Windows: end a process and every process it started (`kill` ends only the one it is given). It runs
+ * synchronously, bounded, so a caller can be sure the tree is gone before it goes on.
+ */
+export function killTree(pid: number): boolean {
+  return spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 }).status === 0;
+}
+
+/**
+ * Windows: the command line of a process whose parent is gone, or undefined (no such process, or its
+ * parent still runs). A live process at the parent's pid that started after the child is not its
+ * parent: Windows reuses pids quickly.
+ */
+export function orphanCommandLine(pid: number): string | undefined {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  const ps = [
+    '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+    `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'`,
+    'if (-not $p) { exit 1 }',
+    "$parent = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $p.ParentProcessId)",
+    'if ($parent -and $parent.CreationDate -le $p.CreationDate) { exit 2 }',
+    '$p.CommandLine',
+  ].join('; ');
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', windowsHide: true, timeout: 15_000 });
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : undefined;
 }
 
 /** Show a folder in the system file manager. */

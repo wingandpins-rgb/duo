@@ -11,11 +11,14 @@
  *   4. hand every line of the untouched event stream to whoever owns the process, which is what
  *      the trace and the live view are built from.
  * Any other spawn passes straight through.
+ *
+ * On Windows it also makes claw's process-group kill and its `ps` check work (see windowsShims).
  */
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { StringDecoder } from 'node:string_decoder';
 import type { BinSpec } from './bins.ts';
+import { IS_WIN, killTree, orphanCommandLine } from './platform.ts';
 
 const require = createRequire(import.meta.url);
 const childProcess = require('node:child_process') as typeof import('node:child_process');
@@ -34,6 +37,7 @@ export interface CodexRoute {
 const codexRoutes = new Map<string, CodexRoute>();
 const claudeBins = new Map<string, BinSpec>();
 const claudeSinks = new Map<string, LineSink>();
+const claudeErrSinks = new Map<string, LineSink>();
 let installed = false;
 
 /** Register a Codex route; pass the returned name to claw as CODEX_BIN. */
@@ -60,6 +64,12 @@ export function claudeRoute(id: string, bin: BinSpec): string {
 export function claudeSink(sessionId: string, sink: LineSink | undefined): void {
   if (sink) claudeSinks.set(sessionId, sink);
   else claudeSinks.delete(sessionId);
+}
+
+/** Receive the stderr lines of that process (where Claude Code reports, for one, a sandbox it could not start). */
+export function claudeErrSink(sessionId: string, sink: LineSink | undefined): void {
+  if (sink) claudeErrSinks.set(sessionId, sink);
+  else claudeErrSinks.delete(sessionId);
 }
 
 function claudeSessionOf(args: readonly string[]): string | undefined {
@@ -146,14 +156,48 @@ function install(): void {
         env: { ...(options.env ?? process.env), ...claude.env },
         windowsHide: true,
       });
-      if (session) tee(p.stdout, (line) => claudeSinks.get(session)?.(line));
+      if (session) {
+        tee(p.stdout, (line) => claudeSinks.get(session)?.(line));
+        tee(p.stderr, (line) => claudeErrSinks.get(session)?.(line));
+      }
       return p;
     }
     return (realSpawn as (...x: unknown[]) => ChildProcess).apply(this, [command, a, b].filter((x) => x !== undefined));
   } as typeof childProcess.spawn;
   childProcess.spawn = hooked;
-  // claw imports `spawn` as an ES module binding; this makes those bindings see the hook.
+  if (IS_WIN) windowsShims();
+  // claw imports from child_process as ES module bindings; this makes those bindings see the hooks.
   syncBuiltinESMExports();
+}
+
+/** What claw's Unix process handling means on Windows. */
+function windowsShims(): void {
+  // claw stops a CLI by signalling its process group (a negative pid), so that what the CLI
+  // started (a shell, a dev server, a test watcher) stops with it. Windows has no process groups:
+  // the call failed, claw fell back to killing the CLI alone, and the rest kept running. Here it
+  // ends the process tree instead. Synchronously: claw has just closed the CLI's stdin, and a CLI
+  // that exits first can no longer be followed to its children.
+  const realKill = process.kill.bind(process);
+  process.kill = function kill(pid: number, signal?: string | number): true {
+    if (pid < 0 && signal !== 0 && killTree(-pid)) return true;
+    return realKill(pid, signal);
+  };
+  // Before killing a process that a crashed manager left behind, claw checks with
+  // `ps -p PID -o command=` that it is a coding CLI. Windows has no ps, so the check failed and
+  // nothing was ever cleaned up. That one query is answered here, in the form ps prints it (forward
+  // slashes, no .exe), and only for a process whose parent is gone: a CLI the user started on a pid
+  // Windows reused keeps running.
+  const realExecFileSync = childProcess.execFileSync;
+  childProcess.execFileSync = function execFileSync(this: unknown, ...a: unknown[]) {
+    const [file, args, options] = a as [unknown, unknown, { encoding?: string } | undefined];
+    if (file === 'ps' && Array.isArray(args) && args.length === 4 && args[0] === '-p' && args[2] === '-o' && args[3] === 'command=') {
+      const line = orphanCommandLine(Number(args[1]));
+      if (line === undefined) throw new Error(`ps: no orphaned process ${args[1]}`);
+      const out = `${line.replace(/"/g, '').replace(/\\/g, '/').replace(/\.exe(?=\s|$)/gi, '')}\n`;
+      return options?.encoding && options.encoding !== 'buffer' ? out : Buffer.from(out);
+    }
+    return (realExecFileSync as (...x: unknown[]) => unknown).apply(this, a);
+  } as typeof childProcess.execFileSync;
 }
 
 export const _test = { claudeSessionOf };

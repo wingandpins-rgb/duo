@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { after, test } from 'node:test';
 
 const tmp = mkdtempSync(join(tmpdir(), 'duo-worktree-'));
 process.env.DUO_HOME = join(tmp, 'home');
-const { prepareWorkspace, discardWorkspace, runCheck, workspaceDiff } = await import('../src/worktree.ts');
+const { prepareWorkspace, discardWorkspace, finishWorkspace, runCheck, workspaceDiff } = await import('../src/worktree.ts');
 const { buildTarget } = await import('../src/protocols/review.ts');
 const { deleteRun } = await import('../src/store.ts');
 const repo = join(tmp, 'repo');
@@ -72,6 +72,71 @@ test('a check that runs past its timeout, or is cancelled, is stopped with every
   const cancelled = await runCheck(command, tmp, 60_000, stop.signal);
   assert.equal(cancelled.timedOut, false);
   assert.ok(cancelled.durationMs < 15_000, `stopped after ${cancelled.durationMs} ms`);
+});
+
+test('a worktree holds paths past the 260-character limit of Windows', () => {
+  // The repository's own git calls allow long paths; duo's worktree folder adds the rest.
+  const long = join(tmp, 'long');
+  const rel = join('src', ...['a', 'b', 'c', 'd'].map((c) => c.repeat(55)), 'file.txt');
+  mkdirSync(join(long, rel, '..'), { recursive: true });
+  writeFileSync(join(long, rel), 'one\n');
+  execFileSync('git', ['init', '-q', long]);
+  const g = (...args: string[]) => execFileSync('git', ['-c', 'core.longpaths=true', '-C', long, ...args]);
+  g('add', '-A');
+  g('-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'init');
+  const ws = prepareWorkspace(long, 'long-paths', 'long paths', 'worktree');
+  try {
+    const file = join(ws.path, rel);
+    assert.ok(file.length > 260, `the path is only ${file.length} characters`);
+    writeFileSync(file, 'two\n');
+    assert.deepEqual(workspaceDiff(ws).files.map((f) => f.path), [rel.replaceAll('\\', '/')]);
+  } finally {
+    discardWorkspace(ws);
+  }
+});
+
+/** Run with core.autocrlf=true in the user's git config, the Git for Windows default. */
+function withAutocrlf<T>(fn: () => T): T {
+  Object.assign(process.env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_VALUE_0: 'true' });
+  try {
+    return fn();
+  } finally {
+    for (const k of ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']) delete process.env[k];
+  }
+}
+
+test('with core.autocrlf, a one-line change in a worktree is a one-line diff', () => {
+  withAutocrlf(() => {
+    const crlf = join(tmp, 'crlf');
+    mkdirSync(crlf, { recursive: true });
+    writeFileSync(join(crlf, 'a.txt'), 'one\ntwo\nthree\nfour\nfive\n');
+    execFileSync('git', ['init', '-q', crlf]);
+    execFileSync('git', ['-C', crlf, 'add', '-A']);
+    execFileSync('git', ['-C', crlf, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'init']);
+    const ws = prepareWorkspace(crlf, 'crlf', 'line endings', 'worktree');
+    try {
+      // A writer edits one word and keeps the file's line endings, whatever they are.
+      const file = join(ws.cwd, 'a.txt');
+      writeFileSync(file, readFileSync(file, 'utf8').replace('two', 'TWO'));
+      const d = workspaceDiff(ws);
+      assert.match(d.stat, /1 insertion\(\+\), 1 deletion\(-\)/, d.stat);
+    } finally {
+      discardWorkspace(ws);
+    }
+  });
+});
+
+test('with core.autocrlf, discarding an in-place run restores every file byte for byte', () => {
+  withAutocrlf(() => {
+    const dir = join(tmp, 'in-place-crlf');
+    mkdirSync(dir, { recursive: true });
+    const original = 'one\ntwo\nthree\n';
+    writeFileSync(join(dir, 'a.txt'), original);
+    const ws = prepareWorkspace(dir, 'in-place-crlf', 'line endings', 'in-place');
+    writeFileSync(join(dir, 'a.txt'), 'changed\n');
+    assert.equal(finishWorkspace(ws, 'discard', 'line endings').ok, true);
+    assert.equal(readFileSync(join(dir, 'a.txt'), 'utf8'), original);
+  });
 });
 
 test('a review revision can never be read by git as an option', () => {
