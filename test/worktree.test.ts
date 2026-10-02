@@ -74,6 +74,27 @@ test('a check that runs past its timeout, or is cancelled, is stopped with every
   assert.ok(cancelled.durationMs < 15_000, `stopped after ${cancelled.durationMs} ms`);
 });
 
+test('a worktree holds paths past the 260-character limit of Windows', () => {
+  // The repository's own git calls allow long paths; duo's worktree folder adds the rest.
+  const long = join(tmp, 'long');
+  const rel = join('src', ...['a', 'b', 'c', 'd'].map((c) => c.repeat(55)), 'file.txt');
+  mkdirSync(join(long, rel, '..'), { recursive: true });
+  writeFileSync(join(long, rel), 'one\n');
+  execFileSync('git', ['init', '-q', long]);
+  const g = (...args: string[]) => execFileSync('git', ['-c', 'core.longpaths=true', '-C', long, ...args]);
+  g('add', '-A');
+  g('-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'init');
+  const ws = prepareWorkspace(long, 'long-paths', 'long paths', 'worktree');
+  try {
+    const file = join(ws.path, rel);
+    assert.ok(file.length > 260, `the path is only ${file.length} characters`);
+    writeFileSync(file, 'two\n');
+    assert.deepEqual(workspaceDiff(ws).files.map((f) => f.path), [rel.replaceAll('\\', '/')]);
+  } finally {
+    discardWorkspace(ws);
+  }
+});
+
 test('a review revision can never be read by git as an option', () => {
   const out = join(tmp, 'written-by-git');
   for (const kind of ['commit', 'base'] as const) {

@@ -13,7 +13,7 @@ import { execFileSync, type ExecFileSyncOptions } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { WORKTREES_DIR } from './paths.ts';
-import { IS_WIN } from './platform.ts';
+import { GIT_PLATFORM_FLAGS, IS_WIN } from './platform.ts';
 
 export interface Workspace {
   mode: 'worktree' | 'in-place';
@@ -51,7 +51,7 @@ const ID = ['-c', 'user.name=duo', '-c', 'user.email=duo@localhost', '-c', 'comm
 const HARDEN = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
 
 function git(args: string[], opts: ExecFileSyncOptions & { input?: string } = {}): string {
-  return String(execFileSync('git', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...opts }));
+  return String(execFileSync('git', [...GIT_PLATFORM_FLAGS, ...args], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...opts }));
 }
 
 function tryGit(args: string[]): string | undefined {

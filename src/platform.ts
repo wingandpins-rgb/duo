@@ -73,6 +73,12 @@ export function nodeRunner(): { command: string; env: Record<string, string> } {
 }
 
 /**
+ * Flags for git in the worktrees duo creates. On Windows a worktree in duo's data folder adds about
+ * 100 characters to every path, and without core.longpaths git cannot create a path past 260.
+ */
+export const GIT_PLATFORM_FLAGS: readonly string[] = IS_WIN ? ['-c', 'core.longpaths=true'] : [];
+
+/**
  * Windows: end a process and every process it started (`kill` ends only the one it is given). It runs
  * synchronously, bounded, so a caller can be sure the tree is gone before it goes on.
  */

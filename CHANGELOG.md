@@ -32,6 +32,7 @@
 - Windows: CLIs left running by a crash were never cleaned up, because the check that a leftover process is a coding CLI used `ps`. It works on Windows now, and there it also requires the process's parent to be gone, so a Claude Code you started yourself on a reused pid is never stopped.
 - Windows: the `/duo` skill could not run `duo` (`command not found`): Claude Code runs commands in Git Bash, and setup wrote only `duo.cmd` and `duo-safe.cmd`. Setup now also writes the scripts Git Bash runs, as npm does for its own commands, and refuses to replace a `duo` command another package installed.
 - Windows: the `/duo` skill wrote briefs to `/tmp`, which is a different place for each program there: Claude Code's Write tool refused it, Git Bash reads it as your Temp folder, and Node as `C:\tmp`. The skill now passes briefs to duo on stdin in a quoted heredoc, on every OS, and no longer needs permission to write files.
+- Windows: a pair run on a repository with deep paths failed with "Filename too long": its worktree in duo's data folder adds about 100 characters to every path, past the 260 git allows there by default. duo's git calls in worktrees allow long paths now.
 
 ## 0.2.0
 
