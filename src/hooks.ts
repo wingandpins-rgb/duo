@@ -11,11 +11,14 @@
  *   4. hand every line of the untouched event stream to whoever owns the process, which is what
  *      the trace and the live view are built from.
  * Any other spawn passes straight through.
+ *
+ * On Windows it also gives claw's process-group kill its meaning there (see install).
  */
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { StringDecoder } from 'node:string_decoder';
 import type { BinSpec } from './bins.ts';
+import { IS_WIN, killTree } from './platform.ts';
 
 const require = createRequire(import.meta.url);
 const childProcess = require('node:child_process') as typeof import('node:child_process');
@@ -154,6 +157,18 @@ function install(): void {
   childProcess.spawn = hooked;
   // claw imports `spawn` as an ES module binding; this makes those bindings see the hook.
   syncBuiltinESMExports();
+  if (IS_WIN) {
+    // claw stops a CLI by signalling its process group (a negative pid), so that what the CLI
+    // started (a shell, a dev server, a test watcher) stops with it. Windows has no process groups:
+    // the call failed, claw fell back to killing the CLI alone, and the rest kept running. Here it
+    // ends the process tree instead. Synchronously: claw has just closed the CLI's stdin, and a CLI
+    // that exits first can no longer be followed to its children.
+    const realKill = process.kill.bind(process);
+    process.kill = function kill(pid: number, signal?: string | number): true {
+      if (pid < 0 && signal !== 0 && killTree(-pid)) return true;
+      return realKill(pid, signal);
+    };
+  }
 }
 
 export const _test = { claudeSessionOf };

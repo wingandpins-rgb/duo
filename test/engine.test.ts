@@ -125,6 +125,31 @@ test('a Claude process that died between turns is restarted on the same conversa
   }
 });
 
+test('closing a Claude seat also stops what its CLI started', { timeout: 30_000 }, async () => {
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  process.env.FAKE_CLAUDE_MODE = 'child';
+  rmSync(LOG, { force: true });
+  let child: number | undefined;
+  try {
+    await ask(ctxFor('ask', ['claude:sonnet@low']));
+    child = calls().find((c) => c.cli === 'claude' && c.child)?.child;
+    assert.ok(child, 'the fake CLI started a child');
+    // claw signals at once, and again (SIGKILL) after 3 seconds.
+    for (const end = Date.now() + 8_000; alive(child) && Date.now() < end; ) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(alive(child), false, 'the child outlived the seat');
+  } finally {
+    delete process.env.FAKE_CLAUDE_MODE;
+    if (child && alive(child)) process.kill(child);
+  }
+});
+
 test('pair: the writer works in a worktree, the reviewer approves, and Apply brings the change home', async () => {
   const repo = join(tmp, 'repo');
   execFileSync('git', ['init', '-q', repo]);

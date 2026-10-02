@@ -28,6 +28,7 @@
 - On macOS, Ctrl+N, Ctrl+B and Ctrl+K in a text field opened a chat, the sidebar or the palette; shortcuts no longer repeat when held.
 - Links to `mailto:` in model output did nothing.
 - Windows: Claude Code installed with npm was not found. duo picked the extensionless script npm writes for Git Bash, which Windows cannot run, and could not read the `.cmd` wrapper of a package that ships a native `.exe`; the setup check reported Claude as not signed in, and Claude seats and chats could not start.
+- Windows: stopping a Claude chat, finishing or cancelling a run, or quitting the app ended only the Claude process; what it had started (a shell, a dev server, a test watcher) kept running. The whole process tree is stopped now.
 
 ## 0.2.0
 

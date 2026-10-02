@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Stand-in for Claude Code's `-p --input-format stream-json --output-format stream-json` in tests.
+import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { instance, record, valueOf } from './common.mjs';
 
@@ -30,6 +31,15 @@ for await (const line of createInterface({ input: process.stdin })) {
   turns++;
   const prompt = (msg.message?.content ?? []).map((c) => c.text ?? '').join('');
   record({ cli: 'claude', turn: turns, session: sid, prompt });
+  // A tool call that started something which outlives the turn (a dev server, a watcher). Unref'd, so
+  // the fake still exits as soon as its stdin closes and leaves the child behind. On Windows, Node
+  // ties a child it starts to its own lifetime unless it is detached; Claude Code does not, so the
+  // fake detaches there. (On Unix the child stays in the fake's process group, as Claude's do.)
+  if (mode === 'child' && turns === 1) {
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore', detached: process.platform === 'win32', windowsHide: true });
+    child.unref();
+    record({ cli: 'claude', child: child.pid });
+  }
   if (mode === 'old') {
     out({ type: 'result', subtype: 'success', is_error: true, result: "API Error: 400 Claude Code 2.1.259 does not support this model; version 2.1.280 or newer is required. Run 'claude update', or update the Claude desktop app, then try again.", session_id: sid, user_message_uuids: [msg.uuid], usage: {}, total_cost_usd: 0 });
     continue;

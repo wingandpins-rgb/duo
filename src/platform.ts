@@ -1,8 +1,9 @@
 /**
  * Operating-system specifics in one place: where duo keeps its files, how to find an executable,
- * how to run a Node script, and how to show a folder. Everything else stays platform-neutral.
+ * how to run a Node script, how to stop a process tree, and how to show a folder. Everything else
+ * stays platform-neutral.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -69,6 +70,14 @@ export function which(name: string): string | undefined {
  */
 export function nodeRunner(): { command: string; env: Record<string, string> } {
   return { command: process.execPath, env: process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {} };
+}
+
+/**
+ * Windows: end a process and every process it started (`kill` ends only the one it is given). It runs
+ * synchronously, bounded, so a caller can be sure the tree is gone before it goes on.
+ */
+export function killTree(pid: number): boolean {
+  return spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 }).status === 0;
 }
 
 /** Show a folder in the system file manager. */
