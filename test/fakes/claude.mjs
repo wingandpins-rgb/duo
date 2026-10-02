@@ -17,6 +17,10 @@ const sid = valueOf(args, '--session-id') ?? valueOf(args, '--resume') ?? 'fake-
 const schema = valueOf(args, '--json-schema');
 const mode = process.env.FAKE_CLAUDE_MODE ?? '';
 record({ cli: 'claude', args, cwd: process.cwd() });
+// Asked for a sandbox it cannot start (Claude Code on Windows, for now): it says so on stderr and goes on.
+if (mode === 'no-sandbox' && args.some((a, i) => args[i - 1] === '--settings' && a.includes('"sandbox"'))) {
+  process.stderr.write('\n⚠ Sandbox disabled: sandbox is enabled but the Windows sandbox is not active on this session (feature gate off)\n  Commands will run WITHOUT sandboxing. Network and filesystem restrictions will NOT be enforced.\n\n');
+}
 // A CLI that cannot start at all (expired install, broken update).
 if (mode === 'no-start') process.exit(1);
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\n');

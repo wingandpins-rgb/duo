@@ -37,6 +37,7 @@ export interface CodexRoute {
 const codexRoutes = new Map<string, CodexRoute>();
 const claudeBins = new Map<string, BinSpec>();
 const claudeSinks = new Map<string, LineSink>();
+const claudeErrSinks = new Map<string, LineSink>();
 let installed = false;
 
 /** Register a Codex route; pass the returned name to claw as CODEX_BIN. */
@@ -63,6 +64,12 @@ export function claudeRoute(id: string, bin: BinSpec): string {
 export function claudeSink(sessionId: string, sink: LineSink | undefined): void {
   if (sink) claudeSinks.set(sessionId, sink);
   else claudeSinks.delete(sessionId);
+}
+
+/** Receive the stderr lines of that process (where Claude Code reports, for one, a sandbox it could not start). */
+export function claudeErrSink(sessionId: string, sink: LineSink | undefined): void {
+  if (sink) claudeErrSinks.set(sessionId, sink);
+  else claudeErrSinks.delete(sessionId);
 }
 
 function claudeSessionOf(args: readonly string[]): string | undefined {
@@ -149,7 +156,10 @@ function install(): void {
         env: { ...(options.env ?? process.env), ...claude.env },
         windowsHide: true,
       });
-      if (session) tee(p.stdout, (line) => claudeSinks.get(session)?.(line));
+      if (session) {
+        tee(p.stdout, (line) => claudeSinks.get(session)?.(line));
+        tee(p.stderr, (line) => claudeErrSinks.get(session)?.(line));
+      }
       return p;
     }
     return (realSpawn as (...x: unknown[]) => ChildProcess).apply(this, [command, a, b].filter((x) => x !== undefined));

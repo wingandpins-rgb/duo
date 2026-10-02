@@ -195,3 +195,24 @@ test('a pair run cannot be continued from duo-safe, and a continuation that cann
   assert.equal(ws.state, 'active', 'the run can still apply, keep or discard its worktree');
   assert.ok(finishWorkspace(ws, 'discard', 'cleanup').ok);
 });
+
+test('a Claude writer whose sandbox could not start says so on its first turn, once', async () => {
+  const repo = join(tmp, 'repo-no-sandbox');
+  execFileSync('git', ['init', '-q', repo]);
+  writeFileSync(join(repo, 'README.md'), '# demo\n');
+  execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A']);
+  execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init']);
+  process.env.FAKE_CLAUDE_MODE = 'no-sandbox';
+  try {
+    const ctx = ctxFor('pair', ['claude:opus@high', 'codex:gpt-6-sol@high'], { cwd: repo, rounds: 2, brief: 'Add a file that says hello.' });
+    await pair(ctx, { isolation: 'worktree', writerAccess: 'sandboxed' });
+    const writer = ctx.store.meta.turns.filter((t) => t.seat === 'A');
+    assert.ok(writer.length >= 1);
+    assert.match(String(writer[0].warnings), /could not start its sandbox.*Windows sandbox is not active.*Full access/s);
+    const all = ctx.store.meta.turns.flatMap((t) => t.warnings ?? []).filter((w) => /could not start its sandbox/.test(w));
+    assert.equal(all.length, 1, 'reported once per seat');
+    assert.ok(finishWorkspace(ctx.store.meta.workspace!, 'discard', 'cleanup').ok);
+  } finally {
+    delete process.env.FAKE_CLAUDE_MODE;
+  }
+});
