@@ -12,7 +12,7 @@
 - The engine accepted the token in the query string of any request and an `Origin` of any loopback port. Only the event stream and run exports take it in the URL now, and only this engine's own port counts as its origin. `npm run dev` no longer uses the fixed token `dev`.
 - Citation checks read any file a model named, outside the project too and of any size; they now stay in the project folder and skip files over 8 MB.
 - The Codex `cfg:` denylist missed keys that redirect requests and the sign-in token (`chatgpt_base_url`, `openai_base_url`), add tools (`tools`, `features`, `apps`, `connectors`), or run a program (`js_repl_node_path`); those and all `experimental_*` keys are refused.
-- The `/duo` skill for Claude Code pre-approved every `duo` command, including `duo pair --check "<any command>"`; it now pre-approves only the discussion and read-only commands, and writing briefs in `/tmp`.
+- The `/duo` skill for Claude Code pre-approved every `duo` command, including `duo pair --check "<any command>"`; it now pre-approves only the discussion and read-only commands.
 - `duo setup` and `--uninstall` could delete an unrelated `~/Applications/Duo.app` or replace another tool's `duo` link; they now touch only what setup made.
 
 ### Fixed
@@ -31,6 +31,7 @@
 - Windows: stopping a Claude chat, finishing or cancelling a run, or quitting the app ended only the Claude process; what it had started (a shell, a dev server, a test watcher) kept running. The whole process tree is stopped now.
 - Windows: CLIs left running by a crash were never cleaned up, because the check that a leftover process is a coding CLI used `ps`. It works on Windows now, and there it also requires the process's parent to be gone, so a Claude Code you started yourself on a reused pid is never stopped.
 - Windows: the `/duo` skill could not run `duo` (`command not found`): Claude Code runs commands in Git Bash, and setup wrote only `duo.cmd` and `duo-safe.cmd`. Setup now also writes the scripts Git Bash runs, as npm does for its own commands, and refuses to replace a `duo` command another package installed.
+- Windows: the `/duo` skill wrote briefs to `/tmp`, which is a different place for each program there: Claude Code's Write tool refused it, Git Bash reads it as your Temp folder, and Node as `C:\tmp`. The skill now passes briefs to duo on stdin in a quoted heredoc, on every OS, and no longer needs permission to write files.
 
 ## 0.2.0
 
