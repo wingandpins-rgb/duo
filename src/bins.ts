@@ -45,7 +45,10 @@ function fromPath(p: string): BinSpec | undefined {
   return isExecutable(p) ? { command: p, args: [], env: {}, display: p } : undefined;
 }
 
-/** npm's Windows wrappers (`claude.cmd`) call node on a script in the global node_modules next to them. */
+/**
+ * npm's Windows wrappers (`claude.cmd`) start what the package installed in the global node_modules
+ * next to them: a script, run with node, or a native .exe (Claude Code's npm package), run directly.
+ */
 function fromNpmWrapper(cmd: string): BinSpec | undefined {
   let text = '';
   try {
@@ -54,11 +57,16 @@ function fromNpmWrapper(cmd: string): BinSpec | undefined {
     return undefined;
   }
   const m = /"%dp0%\\([^"]+\.(?:js|mjs|cjs))"/i.exec(text) ?? /%~dp0\\([^"\s]+\.(?:js|mjs|cjs))/i.exec(text);
-  if (!m) return undefined;
-  const script = join(dirname(cmd), m[1]);
-  if (!existsSync(script)) return undefined;
-  const n = nodeRunner();
-  return { command: n.command, args: [script], env: n.env, display: cmd };
+  if (m) {
+    const script = join(dirname(cmd), m[1]);
+    if (!existsSync(script)) return undefined;
+    const n = nodeRunner();
+    return { command: n.command, args: [script], env: n.env, display: cmd };
+  }
+  // Only inside node_modules: script wrappers also name "%dp0%\node.exe", the runtime they prefer.
+  const exe = /"%dp0%\\(node_modules\\[^"]+\.exe)"/i.exec(text);
+  const target = exe && join(dirname(cmd), exe[1]);
+  return target && existsSync(target) ? { command: target, args: [], env: {}, display: cmd } : undefined;
 }
 
 /**

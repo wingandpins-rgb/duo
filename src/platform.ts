@@ -45,9 +45,14 @@ export function isExecutable(p: string): boolean {
   }
 }
 
-/** PATH lookup that honours PATHEXT on Windows (claude.exe, codex.cmd, ...). */
+/**
+ * PATH lookup that honours PATHEXT on Windows (claude.exe, codex.cmd, ...). There a file without one
+ * of those extensions is not a program: npm puts an extensionless script for Git Bash next to every
+ * `.cmd` it writes, and Windows cannot start it.
+ */
 export function which(name: string): string | undefined {
-  const exts = IS_WIN ? ['', ...(process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').map((e) => e.toLowerCase())] : [''];
+  const pathExts = (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean).map((e) => e.toLowerCase());
+  const exts = !IS_WIN || pathExts.some((e) => name.toLowerCase().endsWith(e)) ? [''] : pathExts;
   for (const dir of (process.env.PATH || '').split(delimiter)) {
     if (!dir) continue;
     for (const ext of exts) {

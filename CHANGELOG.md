@@ -27,6 +27,7 @@
 - `--min-rounds abc` silently disabled early convergence, and the GUI accepted round counts as strings.
 - On macOS, Ctrl+N, Ctrl+B and Ctrl+K in a text field opened a chat, the sidebar or the palette; shortcuts no longer repeat when held.
 - Links to `mailto:` in model output did nothing.
+- Windows: Claude Code installed with npm was not found. duo picked the extensionless script npm writes for Git Bash, which Windows cannot run, and could not read the `.cmd` wrapper of a package that ships a native `.exe`; the setup check reported Claude as not signed in, and Claude seats and chats could not start.
 
 ## 0.2.0
 
