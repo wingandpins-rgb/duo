@@ -36,6 +36,13 @@ export function setOpt(p: SpecParts, key: string, value: string | undefined): Sp
   return { ...p, opts };
 }
 
+/** A team member's name, as the server gives it: "Astra" for gpt-6-astra, "Opus" for opus. */
+export function memberName(spec: string): string {
+  const p = parseSpec(spec);
+  const w = p.model.toLowerCase().replace(/[.*?]/g, '').split(/[^a-z]+/).filter((x) => x.length >= 3 && x !== 'gpt' && x !== 'claude').pop();
+  return w ? w[0].toUpperCase() + w.slice(1) : p.engine === 'claude' ? 'Claude' : 'Codex';
+}
+
 export function shortSpec(spec: string): string {
   const p = parseSpec(spec);
   return `${p.model || p.engine}${p.effort ? ' · ' + p.effort : ''}`;

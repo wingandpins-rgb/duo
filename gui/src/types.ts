@@ -34,6 +34,21 @@ export interface ChatTurn {
   usd?: number;
   error?: string;
   hint?: string;
+  /** Team chats: who answers in this turn, who sent what it answers ("you" or a member), whom the answer is for. */
+  speaker?: string;
+  from?: string;
+  to?: string;
+  /** The worker's question to the lead, asked in the middle of its own turn. */
+  question?: boolean;
+}
+
+/** A member of a team chat: the lead plans and reviews, the worker does the work. */
+export interface ChatMember {
+  name: string;
+  role: 'lead' | 'worker';
+  engine: Engine;
+  spec: string;
+  access: string;
 }
 
 export interface ChatSummary {
@@ -47,6 +62,8 @@ export interface ChatSummary {
   createdAt: string;
   updatedAt: string;
   pinned?: boolean;
+  /** Team chats only. engine, spec and access are then the lead's. */
+  members?: ChatMember[];
   turnCount: number;
   running: boolean;
   lastText?: string;

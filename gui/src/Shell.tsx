@@ -5,9 +5,9 @@ import { MODE_ORDER, MODES, ModeDemo, type ModeId } from './demos.tsx';
 import { DiffView } from './Diff.tsx';
 import { NewRun, outcomeTone, PROTOCOLS, RunView, StatusChip } from './Run.tsx';
 import { AccessPicker, SeatPicker } from './SeatPicker.tsx';
-import { shortSpec } from './spec.ts';
+import { memberName, shortSpec } from './spec.ts';
 import {
-  app, chats, confirmAction, connected, deleteChat, deleteRun, dismissToast, doctor, gitTick, go, guard, loadDoctor, modal, openNewChat, openSideBySide, paletteOpen,
+  app, chats, confirmAction, connected, deleteChat, deleteRun, dismissToast, doctor, gitTick, go, guard, loadDoctor, modal, openNewChat, openSideBySide, openTeamChat, paletteOpen,
   patchChat, prefs, project, refreshQuota, rightPanel, runs, saveSettings, setPrefs, setProject, setRight, sidebarOpen, toasts, toggleSidebar, updateClaude, view,
 } from './store.ts';
 import type { AppState, ChatSummary, Protocol, QuotaWindow, RunSummary } from './types.ts';
@@ -142,10 +142,10 @@ function SideItem({ item }: { item: Item }) {
     };
     return (
       <div class={`side-item ${active ? 'active' : ''}`} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => e.key === 'Enter' && go({ kind: 'chat', panes: [c.id] })} title={`${c.title}\n${c.cwd}\n${MOD}+click: open next to the current chat`}>
-        <span class="side-icon">{c.running ? <Spinner size={12} /> : <EngineMark engine={c.engine} size={18} />}</span>
+        <span class="side-icon">{c.running ? <Spinner size={12} /> : c.members ? <Icon name="team" size={16} /> : <EngineMark engine={c.engine} size={18} />}</span>
         <span class="side-text">
           <span class="side-title">{c.pinned && <Icon name="pin" size={11} class="pin" />}{c.title}</span>
-          <span class="side-sub">{shortSpec(c.spec)}{c.cwd.includes('scratch') ? '' : ` · ${base(c.cwd)}`}</span>
+          <span class="side-sub">{c.members ? c.members.map((m) => m.name).join(' + ') : shortSpec(c.spec)}{c.cwd.includes('scratch') ? '' : ` · ${base(c.cwd)}`}</span>
         </span>
         <span class="side-time">{ago(c.updatedAt)}</span>
         <ItemMenu item={item} />
@@ -201,6 +201,7 @@ function Sidebar() {
                 <MenuItem onClick={() => { close(); void openNewChat('claude'); }} hint={shortSpec(s.gui.claude.spec)}><span class="mi-mark"><EngineMark engine="claude" size={16} /></span> Claude</MenuItem>
                 <MenuItem onClick={() => { close(); void openNewChat('codex'); }} hint={shortSpec(s.gui.codex.spec)}><span class="mi-mark"><EngineMark engine="codex" size={16} /></span> Codex</MenuItem>
                 <MenuItem icon="split" onClick={() => { close(); void openSideBySide(); }} hint={`${MOD}+Shift+N`}>Side by side</MenuItem>
+                <MenuItem icon="team" onClick={() => { close(); void openTeamChat(); }} hint={`${memberName(s.gui.codex.spec)} leads, ${memberName(s.gui.claude.spec)} works`}>Team chat</MenuItem>
               </>
             )}
           </Dropdown>
@@ -239,12 +240,13 @@ function Sidebar() {
 
 // ── home ─────────────────────────────────────────────────────────────────
 
-type HomeTarget = 'claude' | 'codex' | 'both' | Protocol;
+type HomeTarget = 'claude' | 'codex' | 'both' | 'team' | Protocol;
 
 const HOME_TARGETS: { id: HomeTarget; label: string; icon?: string; engine?: 'claude' | 'codex' }[] = [
   { id: 'claude', label: 'Claude', engine: 'claude' },
   { id: 'codex', label: 'Codex', engine: 'codex' },
   { id: 'both', label: 'Both', icon: 'split' },
+  { id: 'team', label: 'Team', icon: 'team' },
   { id: 'pair', label: 'Pair', icon: 'pair' },
   { id: 'debate', label: 'Debate', icon: 'debate' },
   { id: 'council', label: 'Council', icon: 'council' },
@@ -301,6 +303,9 @@ function Home() {
       if (!t) return void openNewChat(target);
       save('');
       void openNewChat(target, t);
+    } else if (target === 'team') {
+      if (t) save('');
+      void openTeamChat(t || undefined);
     } else if (target === 'both') {
       if (t) save('');
       void openSideBySide(t || undefined);
@@ -319,7 +324,7 @@ function Home() {
     else if (m === 'split') void openSideBySide();
     else go({ kind: 'new-run', draft: { protocol: info.protocol } });
   };
-  const runTarget = !['claude', 'codex', 'both'].includes(target);
+  const runTarget = !['claude', 'codex', 'both', 'team'].includes(target);
   return (
     <div class="home">
       <div class="home-inner">
@@ -331,7 +336,7 @@ function Home() {
         <SetupBanner />
         <div class="hero-composer">
           <AutoTextarea value={text} onInput={save} onSubmit={submit} autoFocus max={0.3}
-            placeholder={runTarget ? `Describe the ${target === 'pair' ? 'task' : 'question'}; you choose the seats next` : target === 'both' ? 'Ask Claude and Codex at once' : `Ask ${target === 'claude' ? 'Claude' : 'Codex'} anything`} />
+            placeholder={runTarget ? `Describe the ${target === 'pair' ? 'task' : 'question'}; you choose the seats next` : target === 'both' ? 'Ask Claude and Codex at once' : target === 'team' ? `Give the team a task: ${memberName(s.gui.codex.spec)} plans it and hands it to ${memberName(s.gui.claude.spec)}` : `Ask ${target === 'claude' ? 'Claude' : 'Codex'} anything`} />
           <div class="hero-bar">
             <div class="target-chips">
               {HOME_TARGETS.map((t) => (
@@ -671,6 +676,7 @@ function commands(): Command[] {
     { id: 'new-claude', label: 'New Claude chat', icon: 'chat', engine: 'claude', hint: `${MOD} N`, run: () => void openNewChat('claude') },
     { id: 'new-codex', label: 'New Codex chat', icon: 'chat', engine: 'codex', run: () => void openNewChat('codex') },
     { id: 'split', label: 'Side by side: Claude and Codex', icon: 'split', hint: `${MOD} Shift N`, run: () => void openSideBySide() },
+    { id: 'new-team', label: `New team chat: ${memberName(s.gui.codex.spec)} leads, ${memberName(s.gui.claude.spec)} works`, icon: 'team', run: () => void openTeamChat() },
     ...(['pair', 'debate', 'review', 'council', 'ask'] as Protocol[]).map((p) => ({ id: `run-${p}`, label: `New ${PROTOCOLS[p].label.toLowerCase()} run`, icon: PROTOCOLS[p].icon, run: () => go({ kind: 'new-run', draft: { protocol: p } }) })),
     { id: 'home', label: 'Go home', icon: 'home', run: () => go({ kind: 'home' }) },
     { id: 'folder', label: 'Open a project folder…', icon: 'folder', run: () => pickFolder(project.value || s.home, setProject) },

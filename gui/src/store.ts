@@ -200,6 +200,16 @@ export async function openNewChat(engine: Engine, text?: string): Promise<void> 
   if (text?.trim()) await sendTo(c.id, text);
 }
 
+/** A team chat: the lead (Codex) plans and reviews, the worker (Claude) does the work, both in one conversation. */
+export async function openTeamChat(text?: string): Promise<void> {
+  const cwd = project.value;
+  const c = await guard(api<ChatSession>('/api/chats', { method: 'POST', body: { team: true, cwd: cwd || undefined, noProject: !cwd } }));
+  if (!c) return;
+  chats.value = { ...chats.value, [c.id]: { ...c, permissions: [], allowedTools: [] } };
+  go({ kind: 'chat', panes: [c.id] });
+  if (text?.trim()) await sendTo(c.id, text);
+}
+
 export async function openSideBySide(text?: string): Promise<void> {
   const a = await newChat('claude');
   const b = a && (await newChat('codex'));

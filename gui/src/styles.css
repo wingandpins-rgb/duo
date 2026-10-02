@@ -563,6 +563,13 @@ button.chip:hover { background: var(--hover); }
 .turn { display: flex; flex-direction: column; gap: 14px; animation: rise 0.25s var(--ease); }
 .user-row { display: flex; justify-content: flex-end; }
 .user-bubble { max-width: 82%; background: var(--bg-sunken); border: 1px solid var(--border); padding: 9px 14px; border-radius: 18px 18px 6px 18px; white-space: pre-wrap; word-break: break-word; }
+/* Team chats: a mid-task question, and where an answer goes next. */
+.turn.relay { gap: 10px; }
+.question-row { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding-left: 28px; }
+.question-row .muted { display: inline-flex; align-items: center; gap: 5px; }
+.question-bubble { max-width: 82%; background: var(--bg-elev); border: 1px dashed var(--border-2); padding: 8px 13px; border-radius: 14px; white-space: pre-wrap; word-break: break-word; font-size: 13.5px; }
+.handoff { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; font-size: 12px; color: var(--text-2); background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
+.team-help { max-width: 560px; line-height: 1.6; margin-top: 10px !important; }
 .assistant { display: flex; flex-direction: column; gap: 8px; }
 .assistant-head { display: flex; align-items: center; gap: 8px; }
 .assistant-name { font-weight: 640; }
@@ -655,6 +662,9 @@ summary.step-head::-webkit-details-marker { display: none; }
 .composer-input { width: 100%; border: 0; background: none; box-shadow: none !important; resize: none; padding: 2px 0 6px; font-size: 14.5px; max-height: 40vh; }
 .composer-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .composer-hint { font-size: 11.5px; color: var(--text-3); margin-right: 6px; }
+.member-pick { display: inline-flex; align-items: center; gap: 4px; padding-right: 8px; border-right: 1px solid var(--border); }
+.member-pick + .member-pick { padding-left: 2px; }
+.member-label { font-size: 12px; font-weight: 600; color: var(--text-2); }
 .send-btn {
   width: 34px; height: 34px; border-radius: 50%; border: 0;
   background: var(--ink); color: var(--ink-text);

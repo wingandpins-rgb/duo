@@ -260,12 +260,12 @@ function TurnFooter({ chat, turn, partner, last }: { chat: ChatSession; turn: Ch
             <Icon name="forward" size={13} /> Ask {engineLabel(partner.engine)} to review
           </button>
         )}
-        {text && !partner && (
+        {text && !partner && !chat.members && (
           <button type="button" class="link-btn" title={`Open ${engineLabel(chat.engine === 'claude' ? 'codex' : 'claude')} next to this chat`} onClick={() => void compareWith(chat.id)}>
             <Icon name="split" size={13} /> Compare
           </button>
         )}
-        {text && (
+        {text && !chat.members && (
           <Dropdown align="right" up trigger={(_o, toggle) => <button type="button" class="link-btn" onClick={toggle}><Icon name="debate" size={13} /> Escalate <Icon name="down" size={11} /></button>}>
             {(close) => (
               <>
@@ -281,18 +281,34 @@ function TurnFooter({ chat, turn, partner, last }: { chat: ChatSession; turn: Ch
   );
 }
 
+/** Who speaks in a turn: the chat's engine, or in a team chat the member answering. */
+function speakerOf(chat: ChatSession, turn: ChatTurn): { engine: Engine; name: string } {
+  const m = chat.members?.find((x) => x.name === turn.speaker);
+  return m ? { engine: m.engine, name: m.name } : { engine: chat.engine, name: engineLabel(chat.engine) };
+}
+
 function TurnView({ chat, turn, partner, last }: { chat: ChatSession; turn: ChatTurn; partner?: ChatSession; last: boolean }) {
   const running = turn.status === 'running';
   const runningTool = running && [...turn.blocks].reverse().find((b) => b.status === 'running' && b.kind === 'tool');
   const updateHint = turn.error && /claude update|or newer is required/i.test(turn.error);
+  const who = speakerOf(chat, turn);
+  // In a team chat a member's message to the other is the answer shown just above; only the user's is repeated.
+  const fromUser = !turn.from || turn.from === 'you';
   return (
-    <div class="turn">
-      <div class="user-row"><div class="user-bubble">{turn.user}</div></div>
+    <div class={`turn ${chat.members && !fromUser ? 'relay' : ''}`}>
+      {fromUser && <div class="user-row"><div class="user-bubble">{turn.user}</div></div>}
+      {turn.question && (
+        <div class="question-row">
+          <span class="muted small"><Icon name="help" size={12} /> {turn.from} asks {who.name}, mid-task</span>
+          <div class="question-bubble">{turn.user}</div>
+        </div>
+      )}
       <div class="assistant">
         <div class="assistant-head">
-          <EngineMark engine={chat.engine} size={20} />
-          <span class="assistant-name">{engineLabel(chat.engine)}</span>
+          <EngineMark engine={who.engine} size={20} />
+          <span class="assistant-name">{who.name}</span>
           <span class="muted small">{shortSpec(turn.spec)}</span>
+          {chat.members && !fromUser && !turn.question && <span class="muted small">· answering {turn.from}</span>}
         </div>
         <div class="assistant-body">
           {turn.blocks.map((b) => <BlockView key={b.id} b={b} cwd={chat.cwd} />)}
@@ -318,6 +334,9 @@ function TurnView({ chat, turn, partner, last }: { chat: ChatSession; turn: Chat
               </div>
             </div>
           )}
+          {chat.members && turn.to && turn.to !== 'you' && !running && (
+            <div class="handoff"><Icon name="forward" size={12} /> {turn.question ? 'back to' : 'to'} {turn.to}</div>
+          )}
           {!running && <TurnFooter chat={chat} turn={turn} partner={partner} last={last} />}
         </div>
       </div>
@@ -334,6 +353,22 @@ const STARTERS: Record<Engine, string[]> = {
 
 function EmptyChat({ chat, onPick }: { chat: ChatSession; onPick: (t: string) => void }) {
   const general = chat.cwd.includes('scratch');
+  const lead = chat.members?.find((m) => m.role === 'lead');
+  const worker = chat.members?.find((m) => m.role === 'worker');
+  if (lead && worker) {
+    return (
+      <div class="empty-chat">
+        <Icon name="team" size={52} />
+        <h2>{lead.name} and {worker.name}</h2>
+        <p class="muted">{general ? 'General chat (no project folder)' : <>in <span class="mono">{base(chat.cwd)}</span></>}</p>
+        <p class="muted team-help">
+          {lead.name} leads: it plans, gives {worker.name} the tasks, and checks every report against what {worker.name} actually did.
+          {' '}{worker.name} does the work and asks {lead.name} when something is unclear. Your messages go to {lead.name};
+          start one with <span class="mono">@{worker.name}</span> to talk to {worker.name} directly.
+        </p>
+      </div>
+    );
+  }
   return (
     <div class="empty-chat">
       <EngineMark engine={chat.engine} size={52} />
@@ -391,7 +426,7 @@ function ChatPane({ id, split, partner }: { id: string; split: boolean; partner?
   const scroll = useStickToBottom(c ? JSON.stringify(c.turns.map((t) => [t.id, t.status, t.blocks.length, t.blocks[t.blocks.length - 1]?.text?.length, c.permissions.length])) : '');
   const [pick, setPick] = useState<string | undefined>();
   if (!c) return <section class="pane loading"><Spinner /></section>;
-  const running = c.turns.some((t) => t.status === 'running');
+  const running = busy(c);
   const other = partner ? chats.value[partner] : undefined;
   const closePane = () => {
     if (view.value.kind === 'chat') go({ kind: 'chat', panes: view.value.panes.filter((p) => p !== id) });
@@ -399,23 +434,23 @@ function ChatPane({ id, split, partner }: { id: string; split: boolean; partner?
   return (
     <section class={`pane pane-${c.engine}`}>
       <header class="pane-head">
-        <EngineMark engine={c.engine} size={20} />
+        {c.members ? <Icon name="team" size={20} /> : <EngineMark engine={c.engine} size={20} />}
         <Title chat={c} />
         {c.cwd && !c.cwd.includes('scratch') && <span class="pane-folder" title={c.cwd}><Icon name="folder" size={12} /> {base(c.cwd)}</span>}
         <div class="spacer" />
         {split && <SeatPicker spec={c.spec} engineLocked align="right" onChange={(spec) => void patchChat(id, { spec })} />}
         {split && <AccessPicker engine={c.engine} access={c.access} align="right" onChange={(access) => void patchChat(id, { access })} />}
         {running && split && <button type="button" class="btn small stop" onClick={() => stopChat(id)}><Icon name="stop" size={11} /> Stop</button>}
-        {!split && <button type="button" class="icon-btn" title={`Open ${c.engine === 'claude' ? 'Codex' : 'Claude'} side by side`} onClick={() => void compareWith(id)}><Icon name="split" /></button>}
+        {!split && !c.members && <button type="button" class="icon-btn" title={`Open ${c.engine === 'claude' ? 'Codex' : 'Claude'} side by side`} onClick={() => void compareWith(id)}><Icon name="split" /></button>}
         {split && <button type="button" class="icon-btn" title="Close this pane" onClick={closePane}><Icon name="x" /></button>}
         <Dropdown align="right" trigger={(_o, toggle) => <button type="button" class="icon-btn" onClick={toggle} title="More"><Icon name="dots" /></button>}>
           {(close) => (
             <>
               <MenuItem icon="pin" onClick={() => { close(); void patchChat(c.id, { pinned: !c.pinned }); }}>{c.pinned ? 'Unpin' : 'Pin to the top'}</MenuItem>
               {!c.cwd.includes('scratch') && <MenuItem icon="folder" onClick={() => { close(); if (desktop) void desktop.openPath(c.cwd); else toast(c.cwd, 'info'); }}>Show project folder</MenuItem>}
-              <MenuItem icon="copy" onClick={() => { close(); void navigator.clipboard.writeText(c.turns.map((t) => `## You\n\n${t.user}\n\n## ${engineLabel(c.engine)}\n\n${finalText(t)}`).join('\n\n')); toast('Conversation copied as Markdown', 'success'); }}>Copy conversation</MenuItem>
+              <MenuItem icon="copy" onClick={() => { close(); void navigator.clipboard.writeText(c.turns.map((t) => `${!t.from || t.from === 'you' ? `## You\n\n${t.user}\n\n` : t.question ? `## ${t.from} asks ${t.speaker}\n\n${t.user}\n\n` : ''}## ${speakerOf(c, t).name}\n\n${finalText(t)}`).join('\n\n')); toast('Conversation copied as Markdown', 'success'); }}>Copy conversation</MenuItem>
               <MenuSeparator />
-              <MenuItem icon="trash" danger onClick={() => { close(); confirmAction({ title: 'Delete this chat?', body: `“${c.title}” is removed from Duo. The ${engineLabel(c.engine)} session itself stays in its own history.`, action: 'Delete', danger: true }, () => void deleteChat(id)); }}>Delete chat</MenuItem>
+              <MenuItem icon="trash" danger onClick={() => { close(); confirmAction({ title: 'Delete this chat?', body: c.members ? `“${c.title}” is removed from Duo. The members' sessions themselves stay in their own histories.` : `“${c.title}” is removed from Duo. The ${engineLabel(c.engine)} session itself stays in its own history.`, action: 'Delete', danger: true }, () => void deleteChat(id)); }}>Delete chat</MenuItem>
             </>
           )}
         </Dropdown>
@@ -455,9 +490,16 @@ export function AutoTextarea({ value, onInput, onSubmit, placeholder, autoFocus,
   );
 }
 
+/** Whether a chat is working: a turn is running, or a team chat's exchange is between two turns. */
+function busy(chat: ChatSession): boolean {
+  return chat.turns.some((t) => t.status === 'running') || !!(chat as { running?: boolean }).running;
+}
+
 function Composer({ chat, preset, onPresetUsed }: { chat: ChatSession; preset?: string; onPresetUsed: () => void }) {
   const [text, setText] = useDraft(`duo.draft.${chat.id}`);
-  const running = chat.turns.some((t) => t.status === 'running');
+  const running = busy(chat);
+  const lead = chat.members?.find((m) => m.role === 'lead');
+  const worker = chat.members?.find((m) => m.role === 'worker');
   useEffect(() => {
     if (preset) {
       setText(preset);
@@ -470,12 +512,14 @@ function Composer({ chat, preset, onPresetUsed }: { chat: ChatSession; preset?: 
     setText('');
     if (!(await sendTo(chat.id, t))) setText(t);
   };
-  const last = chat.turns[chat.turns.length - 1];
+  // ↑ brings back your own last message (in a team chat, not the members' messages to each other).
+  const last = [...chat.turns].reverse().find((t) => !t.from || t.from === 'you');
+  const idle = lead && worker ? `Message ${lead.name} · start with @${worker.name} to talk to ${worker.name}` : `Message ${engineLabel(chat.engine)}`;
   return (
     <div class="composer-wrap">
       <div class={`composer ${running ? 'busy' : ''}`}>
         <AutoTextarea value={text} onInput={setText} onSubmit={() => void submit()} autoFocus
-          placeholder={running ? `${engineLabel(chat.engine)} is working… you can type the next message` : `Message ${engineLabel(chat.engine)}`}
+          placeholder={running ? `${lead ? 'The team is' : `${engineLabel(chat.engine)} is`} working… you can type the next message` : idle}
           onKeyDown={(e) => {
             // ↑ in an empty box brings back the last message for editing.
             if (e.key === 'ArrowUp' && !text && last) {
@@ -486,16 +530,28 @@ function Composer({ chat, preset, onPresetUsed }: { chat: ChatSession; preset?: 
             return false;
           }} />
         <div class="composer-bar">
-          <SeatPicker spec={chat.spec} engineLocked up onChange={(spec) => void patchChat(chat.id, { spec })} />
-          <AccessPicker engine={chat.engine} access={chat.access} up onChange={(access) => void patchChat(chat.id, { access })} />
-          {chat.engine === 'codex' && (
+          {chat.members
+            ? chat.members.map((m) => (
+                <span class="member-pick" key={m.name} title={m.role === 'lead' ? `${m.name} leads` : `${m.name} does the work`}>
+                  <span class="member-label">{m.name}</span>
+                  <SeatPicker spec={m.spec} engineLocked up onChange={(spec) => void patchChat(chat.id, { members: [{ name: m.name, spec }] })} />
+                  <AccessPicker engine={m.engine} access={m.access} up onChange={(access) => void patchChat(chat.id, { members: [{ name: m.name, access }] })} />
+                </span>
+              ))
+            : (
+              <>
+                <SeatPicker spec={chat.spec} engineLocked up onChange={(spec) => void patchChat(chat.id, { spec })} />
+                <AccessPicker engine={chat.engine} access={chat.access} up onChange={(access) => void patchChat(chat.id, { access })} />
+              </>
+            )}
+          {(chat.engine === 'codex' || chat.members?.some((m) => m.engine === 'codex')) && (
             <label class="check small" title="Load ~/.codex/config.toml: your Codex plugins and MCP servers">
               <input type="checkbox" checked={chat.useCodexConfig} onChange={(e) => void patchChat(chat.id, { useCodexConfig: (e.target as HTMLInputElement).checked })} />
               My Codex config
             </label>
           )}
           <div class="spacer" />
-          <span class="composer-hint"><Kbd>Enter</Kbd> send · <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> new line</span>
+          {!chat.members && <span class="composer-hint"><Kbd>Enter</Kbd> send · <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> new line</span>}
           {running
             ? <button type="button" class="send-btn stop" onClick={() => stopChat(chat.id)} title="Stop"><Icon name="stop" /></button>
             : <button type="button" class="send-btn" disabled={!text.trim()} onClick={() => void submit()} title={`Send (Enter)`}><Icon name="send" /></button>}
