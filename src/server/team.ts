@@ -157,7 +157,8 @@ export function unseen(turns: readonly TeamTurn[], since: number, upTo: number, 
   const out: string[] = [];
   for (let k = Math.max(0, since); k < upTo; k++) {
     const t = turns[k];
-    if (t.speaker === me) continue;
+    // Its own turns, and one still running (the worker asking mid-task): that answer is not given yet.
+    if (t.speaker === me || t.status === 'running') continue;
     // A question `me` asked in the middle of its own turn came back to it as the tool's answer.
     if (t.question && t.from === me) continue;
     if (t.from === 'you') out.push(`The user to ${t.speaker}: ${t.user}`);

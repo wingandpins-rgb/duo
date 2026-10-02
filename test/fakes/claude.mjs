@@ -2,7 +2,7 @@
 // Stand-in for Claude Code's `-p --input-format stream-json --output-format stream-json` in tests.
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { instance, record, valueOf } from './common.mjs';
+import { instance, record, scripted, valueOf } from './common.mjs';
 
 const args = process.argv.slice(2);
 if (args[0] === '--version') {
@@ -48,7 +48,14 @@ for await (const line of createInterface({ input: process.stdin })) {
     out({ type: 'result', subtype: 'success', is_error: true, result: "API Error: 400 Claude Code 2.1.259 does not support this model; version 2.1.280 or newer is required. Run 'claude update', or update the Claude desktop app, then try again.", session_id: sid, user_message_uuids: [msg.uuid], usage: {}, total_cost_usd: 0 });
     continue;
   }
-  const text = `claude answer ${turns}: ${prompt.length} chars`;
+  const step = scripted(prompt);
+  if (step?.delayMs) await new Promise((r) => setTimeout(r, step.delayMs));
+  (step?.tools ?? []).forEach((t, i) => {
+    const id = `tu${turns}-${i}`;
+    out({ type: 'assistant', message: { id: `m${turns}t${i}`, content: [{ type: 'tool_use', id, name: t.name, input: t.input }] }, session_id: sid });
+    out({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok', is_error: !!t.error }] }, session_id: sid });
+  });
+  const text = step?.reply ?? `claude answer ${turns}: ${prompt.length} chars`;
   out({ type: 'stream_event', event: { type: 'message_start', message: { id: `m${turns}` } } });
   out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } });
   out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } });

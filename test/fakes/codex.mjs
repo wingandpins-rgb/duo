@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Stand-in for `codex exec --json` in tests: records how it was called and answers in Codex's event format.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { instance, record, valueOf } from './common.mjs';
+import { instance, record, scripted, valueOf } from './common.mjs';
 
 const args = process.argv.slice(2);
 if (args[0] === '--version') {
@@ -42,6 +42,8 @@ const sandbox = valueOf(args, '--sandbox') ?? (args.find((a) => a.startsWith('sa
 if (sandbox === 'workspace-write' || sandbox === 'danger-full-access') writeFileSync('duo-fake.txt', `written by the fake writer\n${prompt.split('\n')[0]}\n`);
 
 const schemaPath = valueOf(args, '--output-schema');
-const text = schemaPath ? JSON.stringify(instance(JSON.parse(readFileSync(schemaPath, 'utf8')), { answer: `codex answer: ${prompt.length} chars` })) : `codex answer: ${prompt.length} chars`;
+const step = scripted(prompt);
+if (step?.delayMs) await new Promise((r) => setTimeout(r, step.delayMs));
+const text = step ? step.reply : schemaPath ? JSON.stringify(instance(JSON.parse(readFileSync(schemaPath, 'utf8')), { answer: `codex answer: ${prompt.length} chars` })) : `codex answer: ${prompt.length} chars`;
 out({ type: 'item.completed', item: { id: 'msg', type: 'agent_message', text } });
 out({ type: 'turn.completed', usage: { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 50, reasoning_output_tokens: 10 } });

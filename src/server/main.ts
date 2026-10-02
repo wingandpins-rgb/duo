@@ -296,11 +296,13 @@ const server: Server = createServer(async (req, res) => {
       if (req.method === 'GET' && serveStatic(res, url.pathname)) return;
       throw new HttpError(404, 'not found');
     }
-    // A chat's permission bridge has its own secret, good for asking about that chat and nothing else.
-    if (req.method === 'POST' && url.pathname === '/api/internal/permission') {
+    // A chat's permission bridge has its own secret, good for asking about that chat and nothing else:
+    // the window (a permission), or in a team chat the lead (the worker's question).
+    if (req.method === 'POST' && (url.pathname === '/api/internal/permission' || url.pathname === '/api/internal/ask-lead')) {
       const chat = perms.chatOf(bearer(req));
       if (!chat) throw new HttpError(401, 'unauthorized');
       const b = await body(req);
+      if (url.pathname === '/api/internal/ask-lead') return send(res, 200, { answer: await chats.askLead(chat, String(b.question ?? '')) });
       return send(res, 200, await perms.request(chat, String(b.tool), b.input));
     }
     if (!authorized(req, url)) throw new HttpError(401, 'unauthorized');

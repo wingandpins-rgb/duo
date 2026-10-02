@@ -64,6 +64,9 @@ test('a member catches up on what it missed, without what it saw or will get nex
   assert.deepEqual(unseen(turns, 2, 4, 'Opus'), ['Astra to the user: @you done']);
   // Astra, answering Opus's report in a new turn 5: the user's direct message to Opus is news to it.
   assert.deepEqual(unseen(turns, 4, 5, 'Astra'), ['The user to Opus: @Opus also add a test']);
+  // Asked mid-task, the lead does not get the worker's unfinished turn as if it were an answer.
+  const asking: TeamTurn[] = [turns[0], { ...turns[1], status: 'running', to: undefined, blocks: text('Looking at the cat') }];
+  assert.deepEqual(unseen(asking, 1, 2, 'Astra'), []);
   // A reply addressed to `me` that it never got (the run stopped) is not lost.
   assert.deepEqual(unseen([...turns.slice(0, 1), { ...turns[1], status: 'stopped', blocks: [] }], 1, 2, 'Astra'), ["Opus's turn ended without an answer (stopped)."]);
 });

@@ -20,6 +20,15 @@ export function record(entry) {
   if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, JSON.stringify(entry) + '\n');
 }
 
+/**
+ * Team-chat tests: FAKE_SCRIPT is a JSON list of { match, reply, tools?, delayMs? }. The first entry
+ * whose `match` is in the prompt answers it, after `delayMs`, using `tools` (Claude) first.
+ */
+export function scripted(prompt) {
+  for (const e of process.env.FAKE_SCRIPT ? JSON.parse(process.env.FAKE_SCRIPT) : []) if (prompt.includes(e.match)) return e;
+  return undefined;
+}
+
 export function valueOf(args, flag) {
   const i = args.indexOf(flag);
   return i >= 0 ? args[i + 1] : undefined;
